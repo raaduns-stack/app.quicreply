@@ -28,17 +28,52 @@ function useLocalStorage<T>(
   // useEffect to update local storage when the state changes
   useEffect(() => {
     try {
-      // Allow value to be a function so we have same API as useState
       const valueToStore =
         typeof storedValue === "function"
-          ? storedValue(storedValue)
+          ? (storedValue as Function)(storedValue)
           : storedValue;
-      // Save state
-      window.localStorage.setItem(key, JSON.stringify(valueToStore));
+      
+      const currentVal = window.localStorage.getItem(key);
+      const newVal = JSON.stringify(valueToStore);
+      
+      if (currentVal !== newVal) {
+        window.localStorage.setItem(key, newVal);
+        // Notify other instances in the same tab
+        window.dispatchEvent(new CustomEvent('local-storage-update', { detail: { key, value: valueToStore } }));
+      }
     } catch (error) {
-      // A more advanced implementation would handle the error case
       console.log(error);
     }
+  }, [key, storedValue]);
+
+  // Sync state between components
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === key && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed !== storedValue) {
+            setStoredValue(parsed);
+          }
+        } catch (error) {
+          console.error("Error parsing storage change:", error);
+        }
+      }
+    };
+
+    const handleCustomEvent = (e: any) => {
+      if (e.detail.key === key && e.detail.value !== storedValue) {
+        setStoredValue(e.detail.value);
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("local-storage-update", handleCustomEvent);
+    
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("local-storage-update", handleCustomEvent);
+    };
   }, [key, storedValue]);
 
   return [storedValue, setStoredValue];

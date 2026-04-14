@@ -1,59 +1,98 @@
-import { ChevronDown, LogOut, User } from "lucide-react";
-import { useState } from "react";
+import { 
+  LogOut, 
+  UserCircle, 
+  Sun, 
+  Moon, 
+  LinkIcon, 
+  ChevronDown,
+  ShieldCheck
+} from "lucide-react";
 import { logout } from "wasp/client/auth";
-import { Link as WaspRouterLink } from "wasp/client/router";
-import { type User as UserEntity } from "wasp/entities";
+import { type AuthUser } from "wasp/auth";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "../client/components/ui/dropdown-menu";
-import { userMenuItems } from "./constants";
+import useColorMode from "../client/hooks/useColorMode";
+import { cn } from "../client/utils";
 
-export function UserDropdown({ user }: { user: Partial<UserEntity> }) {
-  const [open, setOpen] = useState(false);
+export function UserDropdown({ user }: { user: AuthUser }) {
+  const [colorMode, setColorMode] = useColorMode();
+  const isInLightMode = colorMode === "light";
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="text-foreground hover:text-primary flex items-center transition-colors duration-300 ease-in-out">
-          <span className="text-foreground mr-2 hidden text-right text-sm font-medium lg:block">
-            {user.username}
-          </span>
-          <User className="size-5" />
-          <ChevronDown className="size-4" />
+        <button className="flex items-center gap-2 rounded-xl p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 outline-none cursor-pointer group">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-100 border border-gray-200 text-foreground text-sm font-semibold dark:bg-card-subtle dark:border-border uppercase group-hover:border-primary/30 transition-colors">
+            {user.email ? user.email.charAt(0) : "U"}
+          </div>
+          <div className="hidden sm:flex flex-col text-left mr-1">
+            <span className="truncate text-sm font-medium text-foreground max-w-[150px]">
+              {user.username || user.email}
+            </span>
+          </div>
+          <ChevronDown size={14} className="text-muted-foreground group-hover:text-foreground transition-colors" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        {userMenuItems.map((item) => {
-          if (item.isAuthRequired && !user) return null;
-          if (item.isAdminOnly && (!user || !user.isAdmin)) return null;
+      <DropdownMenuContent 
+        align="end" 
+        sideOffset={8}
+        className="w-56 rounded-xl border border-gray-200 dark:border-border p-1 shadow-lg dark:bg-card z-[99999]"
+      >
+        <DropdownMenuItem className="cursor-pointer gap-3 text-sm py-2 rounded-lg">
+          <UserCircle size={18} strokeWidth={1.5} />
+          My profile
+        </DropdownMenuItem>
 
-          return (
-            <DropdownMenuItem key={item.name}>
-              <WaspRouterLink
-                to={item.to}
-                onClick={() => {
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-3"
-              >
-                <item.icon size="1.1rem" />
-                {item.name}
-              </WaspRouterLink>
-            </DropdownMenuItem>
-          );
-        })}
-        <DropdownMenuItem>
-          <button
-            type="button"
-            onClick={() => logout()}
-            className="flex w-full items-center gap-3"
-          >
-            <LogOut size="1.1rem" />
-            Log Out
-          </button>
+        {user.isAdmin && (
+          <DropdownMenuItem asChild className="cursor-pointer gap-3 text-sm py-2 rounded-lg text-primary focus:text-primary focus:bg-primary/5">
+            <a href="/admin">
+              <ShieldCheck size={18} strokeWidth={1.5} />
+              Admin Dashboard
+            </a>
+          </DropdownMenuItem>
+        )}
+        
+        <DropdownMenuItem 
+          className="cursor-pointer gap-3 text-sm py-2 rounded-lg justify-between"
+          onClick={(e) => {
+            e.preventDefault(); 
+            if (typeof setColorMode === "function") {
+              setColorMode(isInLightMode ? "dark" : "light");
+            }
+          }}
+        >
+          <div className="flex items-center gap-3">
+            {isInLightMode ? (
+              <Sun size={18} strokeWidth={1.5} />
+            ) : (
+              <Moon size={18} strokeWidth={1.5} />
+            )}
+            Toggle theme
+          </div>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator className="bg-gray-100 dark:bg-border my-1" />
+
+        <DropdownMenuItem asChild className="cursor-pointer gap-3 text-sm py-2 rounded-lg">
+          <a href="https://www.quicreply.io/" target="_blank" rel="noopener noreferrer">
+            <LinkIcon size={18} strokeWidth={1.5} />
+            Homepage
+          </a>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator className="bg-gray-100 dark:bg-border my-1" />
+
+        <DropdownMenuItem 
+          className="cursor-pointer gap-3 text-sm py-2 rounded-lg text-destructive focus:text-destructive"
+          onClick={() => logout()}
+        >
+          <LogOut size={18} strokeWidth={1.5} />
+          Log out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

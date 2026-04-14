@@ -200,54 +200,44 @@ const RevenueAndProfitChart = ({ weeklyStats, isLoading }: DailyStatsProps) => {
   }, [daysOfWeekArr, dailyRevenueArray]);
 
   return (
-    <div className="border-border bg-card pt-7.5 shadow-default sm:px-7.5 col-span-12 rounded-sm border px-5 pb-5 xl:col-span-8">
-      <div className="flex flex-wrap items-start justify-between gap-3 sm:flex-nowrap">
-        <div className="flex w-full flex-wrap gap-3 sm:gap-5">
-          <div className="min-w-47.5 flex">
-            <span className="border-primary mr-2 mt-1 flex h-4 w-full max-w-4 items-center justify-center rounded-full border">
-              <span className="bg-primary block h-2.5 w-full max-w-2.5 rounded-full"></span>
-            </span>
-            <div className="w-full">
-              <p className="text-primary font-semibold">Total Profit</p>
-              <p className="text-muted-foreground text-sm font-medium">
-                Last 7 Days
-              </p>
+    <div className="bg-white/40 dark:bg-card/40 backdrop-blur-md border border-border shadow-lg shadow-black/5 p-6 col-span-12 rounded-2xl transition-all duration-300 xl:col-span-8 overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-3 sm:flex-nowrap mb-6">
+        <div className="flex w-full flex-wrap gap-6 sm:gap-8">
+          <div className="flex items-center gap-2">
+            <span className="flex h-3 w-3 rounded-full bg-[#3C50E0] ring-4 ring-[#3C50E0]/10"></span>
+            <div>
+              <p className="text-sm font-bold text-foreground">Total Profit</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Last 7 Days</p>
             </div>
           </div>
-          <div className="min-w-47.5 flex">
-            <span className="border-secondary mr-2 mt-1 flex h-4 w-full max-w-4 items-center justify-center rounded-full border">
-              <span className="bg-secondary block h-2.5 w-full max-w-2.5 rounded-full"></span>
-            </span>
-            <div className="w-full">
-              <p className="text-secondary font-semibold">Total Revenue</p>
-              <p className="text-muted-foreground text-sm font-medium">
-                Last 7 Days
-              </p>
+          <div className="flex items-center gap-2">
+            <span className="flex h-3 w-3 rounded-full bg-[#80CAEE] ring-4 ring-[#80CAEE]/10"></span>
+            <div>
+              <p className="text-sm font-bold text-foreground">Total Revenue</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Last 7 Days</p>
             </div>
           </div>
         </div>
-        <div className="max-w-45 flex w-full justify-end">
-          <div className="bg-muted inline-flex items-center rounded-md p-1.5">
-            <button className="bg-background text-foreground shadow-card hover:bg-background hover:shadow-card rounded px-3 py-1 text-xs font-medium">
-              Day
-            </button>
-            <button className="text-muted-foreground hover:bg-background hover:shadow-card rounded px-3 py-1 text-xs font-medium">
-              Week
-            </button>
-            <button className="text-muted-foreground hover:bg-background hover:shadow-card rounded px-3 py-1 text-xs font-medium">
-              Month
-            </button>
-          </div>
+        <div className="inline-flex items-center bg-gray-100 dark:bg-white/5 rounded-xl p-1 shadow-inner shrink-0">
+          <button className="bg-white dark:bg-card text-foreground shadow-sm rounded-lg px-4 py-1.5 text-xs font-bold transition-all">
+            Day
+          </button>
+          <button className="text-muted-foreground hover:text-foreground px-4 py-1.5 text-xs font-bold transition-all">
+            Week
+          </button>
+          <button className="text-muted-foreground hover:text-foreground px-4 py-1.5 text-xs font-bold transition-all">
+            Month
+          </button>
         </div>
       </div>
 
-      <div>
-        <div id="chartOne" className="-ml-5">
+      <div className="h-[350px] w-full">
+        <div id="chartOne" className="-ml-4 h-full">
           <ReactApexChart
             options={chartOptions}
             series={state.series}
             type="area"
-            height={350}
+            height="100%"
           />
         </div>
       </div>

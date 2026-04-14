@@ -11,14 +11,18 @@ import {
   Moon,
   Link as LinkIcon,
   ListChecks,
-  LogOut
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  ShieldCheck
 } from "lucide-react";
 import React, { useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import { logout } from "wasp/client/auth";
 import LogoWithoutText from "../../client/static/logos/LOGOWITHOUTTEXT.png";
-import LogoWithText from "../../client/static/logos/LOGOWITHTEXT.png";
+import LogoWithText_Dark from "../../client/static/logos/TextLogo_dark.png";
+import LogoWithText_Light from "../../client/static/logos/TextLogo_light.png";
 import { cn } from "../../client/utils";
 import useColorMode from "../../client/hooks/useColorMode";
 import {
@@ -88,7 +92,7 @@ const Sidebar = ({
     <aside
       ref={sidebar}
       className={cn(
-        "bg-white dark:bg-card absolute top-0 left-0 z-9999 flex h-screen flex-col overflow-y-hidden border-r transition-all duration-300 ease-in-out lg:static lg:translate-x-0 w-64 shadow-xl lg:shadow-none",
+        "bg-white dark:bg-card absolute top-0 left-0 z-9999 flex h-screen flex-col overflow-y-hidden border-r border-border transition-all duration-300 ease-in-out lg:static lg:translate-x-0 w-64 shadow-xl lg:shadow-none",
         {
           "translate-x-0": sidebarOpen,
           "-translate-x-full": !sidebarOpen,
@@ -98,44 +102,60 @@ const Sidebar = ({
       )}
     >
       {/* <!-- SIDEBAR HEADER --> */}
-      <div className={cn("flex flex-col border-b border-gray-100 dark:border-border", {
-        "px-4 py-3": isSidebarExpanded,
-        "px-2 py-3": !isSidebarExpanded
+      <div className={cn("flex flex-col border-b border-border transition-all duration-300 pointer-events-none sticky top-0 bg-white/40 dark:bg-card/40 backdrop-blur-md z-20", {
+        "px-4": isSidebarExpanded,
+        "px-0": !isSidebarExpanded
       })}>
-        <div className="flex flex-row items-center justify-between">
-          <button 
-            type="button"
-            onClick={() => setIsSidebarExpanded(!isSidebarExpanded)} 
-            className="flex items-center gap-3 w-full h-[54px] rounded-lg border-none bg-transparent hover:bg-gray-100 dark:hover:bg-accent transition-colors duration-200 outline-none p-1 cursor-pointer"
-            title={isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
-          >
+        <div className={cn("flex items-center gap-2.5 h-[77px] pointer-events-auto", {
+          "justify-between": isSidebarExpanded,
+          "justify-center": !isSidebarExpanded
+        })}>
+          <div className={cn("flex items-center gap-3 overflow-hidden", {
+            "flex-1": isSidebarExpanded,
+            "w-full justify-center": !isSidebarExpanded
+          })}>
             {isSidebarExpanded ? (
               <img 
-                src={LogoWithText} 
+                src={isInLightMode ? LogoWithText_Light : LogoWithText_Dark} 
                 alt="Logo with Text" 
-                className="h-9 w-auto object-contain shrink-0"
+                className="h-7.5 w-auto object-contain shrink-0"
               />
             ) : (
-              <div className="flex w-full justify-center">
+              <button 
+                onClick={() => setIsSidebarExpanded(true)}
+                className="flex size-10 items-center justify-center hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors cursor-pointer outline-none border-none bg-transparent"
+                title="Expand Sidebar"
+              >
                 <img 
                   src={LogoWithoutText} 
                   alt="Logo" 
-                  className="h-8 w-8 object-contain shrink-0"
+                  className="h-6 w-6 object-contain shrink-0"
                 />
-              </div>
+              </button>
             )}
-          </button>
-
-          <div className="flex items-center">
-            {/* Mobile Close Button */}
-            <button
-              ref={trigger}
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="block lg:hidden p-1.5 text-secondary hover:text-foreground hover:bg-gray-100 rounded-lg dark:hover:bg-accent"
-            >
-              <X strokeWidth={1.5} size={20} />
-            </button>
           </div>
+
+          {isSidebarExpanded && (
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Desktop Collapse Button */}
+              <button
+                onClick={() => setIsSidebarExpanded(false)}
+                className="hidden lg:flex size-8 items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 text-secondary hover:text-foreground transition-all duration-200 outline-none"
+                title="Collapse Sidebar"
+              >
+                <ChevronLeft size={18} strokeWidth={1.5} />
+              </button>
+
+              {/* Mobile Close Button */}
+              <button
+                ref={trigger}
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="block lg:hidden p-1.5 text-secondary hover:text-foreground hover:bg-gray-100 rounded-lg dark:hover:bg-white/10"
+              >
+                <X strokeWidth={1.5} size={20} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
       {/* <!-- SIDEBAR HEADER --> */}
@@ -156,7 +176,7 @@ const Sidebar = ({
                         "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
                         isActive 
                           ? "bg-primary/10 text-primary dark:bg-primary/20" 
-                          : "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-card-subtle dark:hover:text-foreground",
+                          : "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-white/5 dark:hover:text-foreground",
                         {
                           "justify-center px-0": !isSidebarExpanded
                         }
@@ -168,12 +188,12 @@ const Sidebar = ({
                       <>
                         <item.icon 
                           strokeWidth={1.5} 
-                          size={20} 
+                          size={18} 
                           className={cn("shrink-0", { "text-primary": isActive, "text-inherit": !isActive })} 
                         />
                         <span className={cn("whitespace-nowrap transition-all duration-300", {
                           "opacity-0 w-0 hidden": !isSidebarExpanded,
-                          "opacity-100 w-auto": isSidebarExpanded,
+                          "opacity-100 w-auto ml-1": isSidebarExpanded,
                         })}>
                           {item.name}
                         </span>
@@ -187,90 +207,7 @@ const Sidebar = ({
         </nav>
       </div>
 
-      {/* <!-- User Profile Section --> */}
-      <div className={cn("border-t border-gray-100 dark:border-border p-3 transition-all duration-300 overflow-visible", {
-        "px-4": isSidebarExpanded,
-        "px-2": !isSidebarExpanded
-      })}>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={cn("w-full border-none outline-none flex items-center justify-between rounded-xl p-2 cursor-pointer transition-colors bg-transparent",
-              "hover:bg-gray-50 dark:hover:bg-accent group",
-              {
-                "justify-center px-1": !isSidebarExpanded
-              }
-            )}>
-              <div className="flex flex-1 items-center gap-3 overflow-hidden">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gray-100 border border-gray-200 text-foreground text-sm font-semibold dark:bg-card-subtle dark:border-border uppercase">
-                  {user.email ? user.email.charAt(0) : "U"}
-                </div>
-                
-                <div className={cn("flex flex-col text-left overflow-hidden transition-all duration-300", {
-                  "opacity-0 w-0 hidden": !isSidebarExpanded,
-                  "opacity-100 w-full": isSidebarExpanded,
-                })}>
-                  <span className="truncate text-sm font-medium text-foreground w-full">
-                    {user.email}
-                  </span>
-                </div>
-              </div>
-              
-              {isSidebarExpanded && (
-                <MoreHorizontal size={16} className="text-secondary group-hover:text-foreground transition-colors shrink-0" />
-              )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent 
-            align={isSidebarExpanded ? "start" : "center"} 
-            side="top"
-            sideOffset={14}
-            className="w-56 rounded-xl border border-gray-200 dark:border-border p-1 shadow-lg dark:bg-card z-[99999]"
-          >
-            <DropdownMenuItem className="cursor-pointer gap-3 text-sm py-2 rounded-lg">
-              <UserCircle size={18} strokeWidth={1.5} />
-              My profile
-            </DropdownMenuItem>
-            
-            <DropdownMenuItem 
-              className="cursor-pointer gap-3 text-sm py-2 rounded-lg justify-between"
-              onClick={(e) => {
-                e.preventDefault(); 
-                if (typeof setColorMode === "function") {
-                  setColorMode(isInLightMode ? "dark" : "light");
-                }
-              }}
-            >
-              <div className="flex items-center gap-3">
-                {isInLightMode ? (
-                  <Sun size={18} strokeWidth={1.5} />
-                ) : (
-                  <Moon size={18} strokeWidth={1.5} />
-                )}
-                Toggle theme
-              </div>
-            </DropdownMenuItem>
 
-            <DropdownMenuSeparator className="bg-gray-100 dark:bg-border my-1" />
-
-            <DropdownMenuItem asChild className="cursor-pointer gap-3 text-sm py-2 rounded-lg">
-              <a href="https://www.quicreply.io/" target="_blank" rel="noopener noreferrer">
-                <LinkIcon size={18} strokeWidth={1.5} />
-                Homepage
-              </a>
-            </DropdownMenuItem>
-
-            <DropdownMenuSeparator className="bg-gray-100 dark:bg-border my-1" />
-
-            <DropdownMenuItem 
-              className="cursor-pointer gap-3 text-sm py-2 rounded-lg"
-              onClick={() => logout()}
-            >
-              <LogOut size={18} strokeWidth={1.5} />
-              Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
     </aside>
   );
 };

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
-import Logo from "../../client/static/logo.png";
+import Logo from "../../client/static/logos/LOGOWITHOUTTEXT.png";
 import { cn } from "../../client/utils";
 import SidebarLinkGroup from "./SidebarLinkGroup";
 
@@ -70,18 +70,18 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
     <aside
       ref={sidebar}
       className={cn(
-        "bg-muted absolute top-0 left-0 z-9999 flex h-screen w-72.5 flex-col overflow-y-hidden border-r duration-300 ease-linear lg:static lg:translate-x-0",
+        "bg-white dark:bg-card absolute top-0 left-0 z-9999 flex h-screen w-72.5 flex-col overflow-y-hidden border-r border-border duration-300 ease-in-out lg:static lg:translate-x-0",
         {
           "translate-x-0": sidebarOpen,
           "-translate-x-full": !sidebarOpen,
         },
       )}
     >
-      {/* <!-- SIDEBAR HEADER --> */}
-      <div className="flex items-center justify-between gap-2 px-6 py-5.5 lg:py-6.5">
-        <NavLink to="/">
-          <img src={Logo} alt="Logo" width={50} />
-        </NavLink>
+      <div className="flex flex-col border-b border-border transition-all duration-300 px-6 h-[78px] justify-center sticky top-0 bg-white/40 dark:bg-card/40 backdrop-blur-md z-20">
+        <div className="flex flex-row items-center justify-between">
+          <NavLink to="/">
+            <img src={Logo} alt="Logo" className="h-6 w-6 object-contain" />
+          </NavLink>
 
         <button
           ref={trigger}
@@ -93,6 +93,7 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
           <X />
         </button>
       </div>
+    </div>
       {/* <!-- SIDEBAR HEADER --> */}
 
       <div className="no-scrollbar flex flex-col overflow-y-auto duration-300 ease-linear">
@@ -111,9 +112,9 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
                 end
                 className={({ isActive }) =>
                   cn(
-                    "text-muted-foreground hover:bg-accent hover:text-accent-foreground group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium duration-300 ease-in-out",
+                    "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-white/5 group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium transition-all duration-200",
                     {
-                      "bg-accent text-accent-foreground": isActive,
+                      "bg-primary/10 text-primary dark:bg-primary/20": isActive,
                     },
                   )
                 }
@@ -131,9 +132,9 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
                   end
                   className={({ isActive }) =>
                     cn(
-                      "text-muted-foreground hover:bg-accent hover:text-accent-foreground group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium duration-300 ease-in-out",
+                      "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-white/5 group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium transition-all duration-200",
                       {
-                        "bg-accent text-accent-foreground": isActive,
+                        "bg-primary/10 text-primary dark:bg-primary/20": isActive,
                       },
                     )
                   }
@@ -151,9 +152,9 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
                   end
                   className={({ isActive }) =>
                     cn(
-                      "text-muted-foreground hover:bg-accent hover:text-accent-foreground group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium duration-300 ease-in-out",
+                      "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-white/5 group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium transition-all duration-200",
                       {
-                        "bg-accent text-accent-foreground": isActive,
+                        "bg-primary/10 text-primary dark:bg-primary/20": isActive,
                       },
                     )
                   }
@@ -180,9 +181,9 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
                   end
                   className={({ isActive }) =>
                     cn(
-                      "text-muted-foreground hover:bg-accent hover:text-accent-foreground group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium duration-300 ease-in-out",
+                      "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-white/5 group relative flex items-center gap-2.5 rounded-sm px-4 py-2 font-medium transition-all duration-200",
                       {
-                        "bg-accent text-accent-foreground": isActive,
+                        "bg-primary/10 text-primary dark:bg-primary/20": isActive,
                       },
                     )
                   }
