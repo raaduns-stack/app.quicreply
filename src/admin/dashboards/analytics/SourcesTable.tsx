@@ -1,3 +1,4 @@
+import { cn } from "../../../client/utils";
 import { type PageViewSource } from "wasp/entities";
 
 const SourcesTable = ({
