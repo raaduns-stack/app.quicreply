@@ -184,12 +184,5 @@ function BuyMoreButton({
     return null;
   }
 
-  return (
-    <WaspRouterLink
-      to={routes.PricingPageRoute.to}
-      className="text-primary hover:text-primary/80 text-sm font-medium transition-colors duration-200"
-    >
-      <Button variant="link">Buy More Credits</Button>
-    </WaspRouterLink>
-  );
+  return null;
 }
