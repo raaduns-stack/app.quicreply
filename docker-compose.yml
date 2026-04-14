@@ -1,0 +1,48 @@
+services:
+  opensaas-app:
+    build:
+      context: .wasp/out
+      dockerfile: Dockerfile
+    ports:
+      - "3002:8080"
+    networks:
+      - shared_network
+    environment:
+      # Now using internal Docker DNS: stack_postgres on port 5432
+      - DATABASE_URL=postgresql://stackuser:Stack%40Secure123%21@stack_postgres:5432/quicreply_saas
+      - WASP_WEB_CLIENT_URL=https://app.quicreply.io
+      - WASP_SERVER_URL=https://app.quicreply.io
+      - PORT=8080
+      - JWT_SECRET=quicreplysecretkey2026opensaas123
+      - PAYMENTS_HOBBY_SUBSCRIPTION_PLAN_ID=dummy_hobby_id
+      - PAYMENTS_PRO_SUBSCRIPTION_PLAN_ID=dummy_pro_id
+      - PAYMENTS_CREDITS_10_PLAN_ID=dummy_credits_id
+      - STRIPE_API_KEY=sk_test_dummy_key
+      - STRIPE_WEBHOOK_SECRET=whsec_dummy_secret
+      - LEMONSQUEEZY_API_KEY=dummy_ls_key
+      - LEMONSQUEEZY_WEBHOOK_SECRET=dummy_ls_secret
+      - LEMONSQUEEZY_STORE_ID=dummy_store_id
+      - POLAR_ORGANIZATION_ACCESS_TOKEN=dummy_polar_token
+      - POLAR_SANDBOX_MODE=true
+      - POLAR_WEBHOOK_SECRET=dummy_polar_secret
+      - OPENAI_API_KEY=sk-dummy-openai-key
+      - AWS_S3_REGION=us-east-1
+      - AWS_S3_IAM_ACCESS_KEY=dummy_aws_key
+      - AWS_S3_IAM_SECRET_KEY=dummy_aws_secret
+      - AWS_S3_FILES_BUCKET=dummy_bucket
+      - PLAUSIBLE_API_KEY=dummy_plausible_key
+      - PLAUSIBLE_SITE_ID=app.quicreply.io
+      - PLAUSIBLE_BASE_URL=https://plausible.io
+      - GOOGLE_ANALYTICS_CLIENT_EMAIL=dummy@email.com
+      - GOOGLE_ANALYTICS_PRIVATE_KEY=dummy_private_key
+      - GOOGLE_ANALYTICS_PROPERTY_ID=dummy_property_id
+      - SMTP_HOST=smtp.dummy.com
+      - SMTP_PORT=587
+      - SMTP_USERNAME=dummy_user
+      - SMTP_PASSWORD=dummy_password
+    restart: always
+
+networks:
+  shared_network:
+    external: true
+    name: stack_stack_net
