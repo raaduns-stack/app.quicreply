@@ -1,13 +1,12 @@
-import { 
-  LogOut, 
-  UserCircle, 
-  Sun, 
-  Moon, 
-  LinkIcon, 
+import {
+  LogOut,
+  UserCircle,
+  Sun,
+  Moon,
+  LinkIcon,
   ChevronDown,
-  ShieldCheck
+  ShieldCheck,
 } from "lucide-react";
-import { logout } from "wasp/client/auth";
 import { type AuthUser } from "wasp/auth";
 import {
   DropdownMenu,
@@ -18,10 +17,12 @@ import {
 } from "../client/components/ui/dropdown-menu";
 import useColorMode from "../client/hooks/useColorMode";
 import { cn } from "../client/utils";
+import { useLogoutAndRedirect } from "../auth/hooks/useLogoutAndRedirect";
 
 export function UserDropdown({ user }: { user: AuthUser }) {
   const [colorMode, setColorMode] = useColorMode();
   const isInLightMode = colorMode === "light";
+  const logoutAndRedirect = useLogoutAndRedirect();
 
   return (
     <DropdownMenu>
@@ -35,11 +36,14 @@ export function UserDropdown({ user }: { user: AuthUser }) {
               {user.username || user.email}
             </span>
           </div>
-          <ChevronDown size={14} className="text-muted-foreground group-hover:text-foreground transition-colors" />
+          <ChevronDown
+            size={14}
+            className="text-muted-foreground group-hover:text-foreground transition-colors"
+          />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent 
-        align="end" 
+      <DropdownMenuContent
+        align="end"
         sideOffset={8}
         className="w-56 rounded-xl border border-gray-200 dark:border-border p-1 shadow-lg dark:bg-card z-[99999]"
       >
@@ -49,18 +53,21 @@ export function UserDropdown({ user }: { user: AuthUser }) {
         </DropdownMenuItem>
 
         {user.isAdmin && (
-          <DropdownMenuItem asChild className="cursor-pointer gap-3 text-sm py-2 rounded-lg text-primary focus:text-primary focus:bg-primary/5">
+          <DropdownMenuItem
+            asChild
+            className="cursor-pointer gap-3 text-sm py-2 rounded-lg text-primary focus:text-primary focus:bg-primary/5"
+          >
             <a href="/admin">
               <ShieldCheck size={18} strokeWidth={1.5} />
               Admin Dashboard
             </a>
           </DropdownMenuItem>
         )}
-        
-        <DropdownMenuItem 
+
+        <DropdownMenuItem
           className="cursor-pointer gap-3 text-sm py-2 rounded-lg justify-between"
           onClick={(e) => {
-            e.preventDefault(); 
+            e.preventDefault();
             if (typeof setColorMode === "function") {
               setColorMode(isInLightMode ? "dark" : "light");
             }
@@ -78,8 +85,15 @@ export function UserDropdown({ user }: { user: AuthUser }) {
 
         <DropdownMenuSeparator className="bg-gray-100 dark:bg-border my-1" />
 
-        <DropdownMenuItem asChild className="cursor-pointer gap-3 text-sm py-2 rounded-lg">
-          <a href="https://www.quicreply.io/" target="_blank" rel="noopener noreferrer">
+        <DropdownMenuItem
+          asChild
+          className="cursor-pointer gap-3 text-sm py-2 rounded-lg"
+        >
+          <a
+            href="https://www.quicreply.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <LinkIcon size={18} strokeWidth={1.5} />
             Homepage
           </a>
@@ -87,9 +101,9 @@ export function UserDropdown({ user }: { user: AuthUser }) {
 
         <DropdownMenuSeparator className="bg-gray-100 dark:bg-border my-1" />
 
-        <DropdownMenuItem 
+        <DropdownMenuItem
           className="cursor-pointer gap-3 text-sm py-2 rounded-lg text-destructive focus:text-destructive"
-          onClick={() => logout()}
+          onClick={() => void logoutAndRedirect()}
         >
           <LogOut size={18} strokeWidth={1.5} />
           Log out

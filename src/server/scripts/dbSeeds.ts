@@ -55,5 +55,8 @@ function generateMockUserData(): MockUserData {
     subscriptionPlan: subscriptionStatus
       ? faker.helpers.arrayElement(getSubscriptionPaymentPlanIds())
       : null,
+    firstName,
+    lastName,
+    whatsapp: null,
   };
 }
