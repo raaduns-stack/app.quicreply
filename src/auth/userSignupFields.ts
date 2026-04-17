@@ -8,6 +8,9 @@ function isAdminEmail(email: string): boolean {
 
 const emailDataSchema = z.object({
   email: z.string(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  whatsapp: z.string().optional(),
 });
 
 export const getEmailUserFields = defineUserSignupFields({
@@ -22,6 +25,18 @@ export const getEmailUserFields = defineUserSignupFields({
   isAdmin: (data) => {
     const emailData = emailDataSchema.parse(data);
     return isAdminEmail(emailData.email);
+  },
+  firstName: (data) => {
+    const emailData = emailDataSchema.parse(data);
+    return emailData.firstName;
+  },
+  lastName: (data) => {
+    const emailData = emailDataSchema.parse(data);
+    return emailData.lastName;
+  },
+  whatsapp: (data) => {
+    const emailData = emailDataSchema.parse(data);
+    return emailData.whatsapp;
   },
 });
 

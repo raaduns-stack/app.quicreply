@@ -1,7 +1,7 @@
 import { LogOut } from "lucide-react";
-import { logout } from "wasp/client/auth";
 import { Link as WaspRouterLink } from "wasp/client/router";
 import { type User } from "wasp/entities";
+import { useLogoutAndRedirect } from "../auth/hooks/useLogoutAndRedirect";
 import { userMenuItems } from "./constants";
 
 export const UserMenuItems = ({
@@ -11,6 +11,8 @@ export const UserMenuItems = ({
   user?: Partial<User>;
   onItemClick?: () => void;
 }) => {
+  const logoutAndRedirect = useLogoutAndRedirect();
+
   return (
     <>
       {userMenuItems.map((item) => {
@@ -33,8 +35,9 @@ export const UserMenuItems = ({
       <li>
         <button
           onClick={() => {
-            logout();
-            onItemClick?.();
+            void logoutAndRedirect(() => {
+              onItemClick?.();
+            });
           }}
           className="text-foreground hover:bg-accent hover:text-accent-foreground flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium leading-7 transition-colors"
         >

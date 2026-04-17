@@ -3,7 +3,7 @@ app OpenSaaS {
     version: "^0.22.0"
   },
 
-  title: "My Open SaaS App",
+  title: "QuicReply — WhatsApp Automation",
 
   head: [
     "<link rel='icon' href='/favicon.png' />",
@@ -38,8 +38,8 @@ app OpenSaaS {
       //   (RequestPasswordReset(Route|Page), PasswordReset(Route|Page), EmailVerification(Route|Page))
       email: {
         fromField: {
-          name: "Open SaaS App",
-          email: "me@example.com"
+          name: "QuicReply Notifications",
+          email: "noreply@quicreply.io"
         },
         emailVerification: {
           clientRoute: EmailVerificationRoute,
@@ -52,10 +52,10 @@ app OpenSaaS {
         userSignupFields: import { getEmailUserFields } from "@src/auth/userSignupFields",
       },
       // Uncomment to enable Google Auth (check https://wasp.sh/docs/auth/social-auth/google for setup instructions):
-      // google: { // Guide for setting up Auth via Google
-      //   userSignupFields: import { getGoogleUserFields } from "@src/auth/userSignupFields",
-      //   configFn: import { getGoogleAuthConfig } from "@src/auth/userSignupFields",
-      // },
+      google: { // Guide for setting up Auth via Google
+        userSignupFields: import { getGoogleUserFields } from "@src/auth/userSignupFields",
+        configFn: import { getGoogleAuthConfig } from "@src/auth/userSignupFields",
+      },
       // Uncomment to enable GitHub Auth (check https://wasp.sh/docs/auth/social-auth/github for setup instructions):
       // gitHub: {
       //   userSignupFields: import { getGitHubUserFields } from "@src/auth/userSignupFields",
@@ -93,9 +93,8 @@ app OpenSaaS {
     //   Once you are ready for production, switch to e.g. "SendGrid" or "Mailgun" providers. Check out https://docs.opensaas.sh/guides/email-sending/ .
     provider: SMTP,
     defaultFrom: {
-      name: "Open SaaS App",
-      // When using a real provider, e.g. SendGrid, you must use the same email address that you configured your account to send out emails with!
-      email: "me@example.com"
+      name: "QuicReply Notifications",
+      email: "noreply@quicreply.io"
     },
   },
 }
@@ -113,6 +112,11 @@ page SignupPage {
   component: import { Signup } from "@src/auth/SignupPage"
 }
 
+route LoggedOutRoute { path: "/logged-out", to: LoggedOutPage }
+page LoggedOutPage {
+  component: import LoggedOutPage from "@src/auth/LoggedOutPage"
+}
+
 route RequestPasswordResetRoute { path: "/request-password-reset", to: RequestPasswordResetPage }
 page RequestPasswordResetPage {
   component: import { RequestPasswordResetPage } from "@src/auth/email-and-pass/RequestPasswordResetPage",
@@ -126,6 +130,18 @@ page PasswordResetPage {
 route EmailVerificationRoute { path: "/email-verification", to: EmailVerificationPage }
 page EmailVerificationPage {
   component: import { EmailVerificationPage } from "@src/auth/email-and-pass/EmailVerificationPage",
+}
+
+api resendVerificationEmailApi {
+  fn: import { resendVerificationEmailApi } from "@src/auth/email-and-pass/api",
+  httpRoute: (POST, "/auth/email/resend-verification"),
+  auth: false,
+}
+
+api verifyEmailLatestApi {
+  fn: import { verifyEmailLatestApi } from "@src/auth/email-and-pass/api",
+  httpRoute: (POST, "/auth/email/verify-email-latest"),
+  auth: false,
 }
 //#endregion
 
