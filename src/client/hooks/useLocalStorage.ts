@@ -6,12 +6,9 @@ function useLocalStorage<T>(
   key: string,
   initialValue: T,
 ): [T, (value: SetValue<T>) => void] {
-  // Always start with initialValue to match server render.
-  // We sync with localStorage in a useEffect after mount.
   const [storedValue, setStoredValue] = useState<T>(initialValue);
   const [hasMounted, setHasMounted] = useState(false);
 
-  // On first mount, read the real value from localStorage
   useEffect(() => {
     try {
       const item = window.localStorage.getItem(key);
@@ -24,7 +21,6 @@ function useLocalStorage<T>(
     setHasMounted(true);
   }, [key]);
 
-  // Persist to localStorage whenever the value changes (but only after mount)
   useEffect(() => {
     if (!hasMounted) return;
     try {
@@ -45,7 +41,6 @@ function useLocalStorage<T>(
     }
   }, [key, storedValue, hasMounted]);
 
-  // Sync state between tabs/components
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === key && e.newValue) {

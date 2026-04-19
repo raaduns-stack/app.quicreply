@@ -5,7 +5,6 @@ export default function useColorMode() {
   const [colorMode, setColorMode] = useLocalStorage("color-theme", "light");
 
   useEffect(() => {
-    // Guard: only run in the browser after mount
     if (typeof window === "undefined") return;
 
     const className = "dark";
