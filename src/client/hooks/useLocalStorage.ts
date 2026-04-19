@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 type SetValue<T> = T | ((val: T) => T);
 
@@ -6,47 +6,46 @@ function useLocalStorage<T>(
   key: string,
   initialValue: T,
 ): [T, (value: SetValue<T>) => void] {
-  // State to store our value
-  // Pass  initial state function to useState so logic is only executed once
-  const [storedValue, setStoredValue] = useState(() => {
-    if (typeof window === "undefined") {
-      return initialValue;
-    }
+  // Always start with initialValue to match server render.
+  // We sync with localStorage in a useEffect after mount.
+  const [storedValue, setStoredValue] = useState<T>(initialValue);
+  const [hasMounted, setHasMounted] = useState(false);
 
-    try {
-      // Get from local storage by key
-      const item = window.localStorage.getItem(key);
-      // Parse stored json or if none return initialValue
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      // If error also return initialValue
-      console.log(error);
-      return initialValue;
-    }
-  });
-
-  // useEffect to update local storage when the state changes
+  // On first mount, read the real value from localStorage
   useEffect(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      if (item !== null) {
+        setStoredValue(JSON.parse(item));
+      }
+    } catch (error) {
+      console.log(error);
+    }
+    setHasMounted(true);
+  }, [key]);
+
+  // Persist to localStorage whenever the value changes (but only after mount)
+  useEffect(() => {
+    if (!hasMounted) return;
     try {
       const valueToStore =
         typeof storedValue === "function"
           ? (storedValue as Function)(storedValue)
           : storedValue;
-      
+
       const currentVal = window.localStorage.getItem(key);
       const newVal = JSON.stringify(valueToStore);
-      
+
       if (currentVal !== newVal) {
         window.localStorage.setItem(key, newVal);
-        // Notify other instances in the same tab
         window.dispatchEvent(new CustomEvent('local-storage-update', { detail: { key, value: valueToStore } }));
       }
     } catch (error) {
       console.log(error);
     }
-  }, [key, storedValue]);
+  }, [key, storedValue, hasMounted]);
 
-  // Sync state between components
+  // Sync state between tabs/components
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === key && e.newValue) {
@@ -69,7 +68,7 @@ function useLocalStorage<T>(
 
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener("local-storage-update", handleCustomEvent);
-    
+
     return () => {
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("local-storage-update", handleCustomEvent);
