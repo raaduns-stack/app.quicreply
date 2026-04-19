@@ -3,14 +3,26 @@ services:
     build:
       context: .wasp/out
       dockerfile: Dockerfile
+    container_name: opensaas-app
     ports:
       - "3002:8080"
-    networks:
-      - shared_network
     env_file:
       - .env.server
     environment:
       - PORT=8080
+      - NODE_ENV=production
+    networks:
+      - shared_network
+    restart: always
+
+  opensaas-client:
+    image: pierrezemb/gostatic
+    container_name: opensaas-client
+    command: [ "-fallback", "index.html" ]
+    ports:
+      - "3003:8043"
+    volumes:
+      - ./.wasp/out/web-app/build:/srv/http/:ro
     restart: always
 
 networks:
