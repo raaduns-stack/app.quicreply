@@ -1,5 +1,7 @@
-import { FC, ReactNode, useState } from "react";
+import { FC, ReactNode, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { type AuthUser } from "wasp/auth";
+import { routes } from "wasp/client/router";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 
@@ -11,6 +13,20 @@ interface Props {
 const UserLayout: FC<Props> = ({ children, user }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const navigate = useNavigate();
+  const isOnboardingCompleted =
+    (user as AuthUser & { onboardingCompleted?: boolean }).onboardingCompleted ===
+    true;
+
+  useEffect(() => {
+    if (!isOnboardingCompleted) {
+      navigate(routes.OnboardingRoute.to, { replace: true });
+    }
+  }, [isOnboardingCompleted, navigate]);
+
+  if (!isOnboardingCompleted) {
+    return null;
+  }
 
   return (
     <div className="bg-background text-foreground min-h-screen">

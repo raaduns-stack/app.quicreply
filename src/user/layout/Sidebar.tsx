@@ -14,7 +14,8 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  CreditCard
 } from "lucide-react";
 import React, { useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router";
@@ -46,6 +47,7 @@ const navigation = [
   { name: 'WhatsApp', href: '/whatsapp', icon: MessageSquare },
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
+  { name: 'Billing', href: '/billing', icon: CreditCard },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

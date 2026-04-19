@@ -57,6 +57,8 @@ function generateMockUserData(): MockUserData {
       : null,
     firstName,
     lastName,
+    onboardingCompleted: true,
+    onboardingStep: 4,
     whatsapp: null,
   };
 }
