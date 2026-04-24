@@ -167,7 +167,6 @@ const Sidebar = ({
         <nav className="mt-4 px-3 flex-1 flex flex-col">
           <ul className="flex flex-col gap-1">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.href;
               return (
                 <li key={item.name}>
                   <NavLink

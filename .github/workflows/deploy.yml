@@ -1,0 +1,67 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          : "${VPS_HOST:?Missing VPS_HOST secret}"
+          : "${VPS_SSH_KEY:?Missing VPS_SSH_KEY secret}"
+          VPS_PORT="${VPS_PORT:-22}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          : "${VPS_HOST:?Missing VPS_HOST secret}"
+          : "${VPS_USER:?Missing VPS_USER secret}"
+          VPS_PORT="${VPS_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-$HOME/www/app.quicreply.io}"
+
+          ssh -o ConnectTimeout=15 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "cd '$DEPLOY_PATH' && bash scripts/deploy-production.sh"
+
+      - name: Print VPS logs on failure
+        if: failure()
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          : "${VPS_HOST:?Missing VPS_HOST secret}"
+          : "${VPS_USER:?Missing VPS_USER secret}"
+          VPS_PORT="${VPS_PORT:-22}"
+          DEPLOY_PATH="${DEPLOY_PATH:-$HOME/www/app.quicreply.io}"
+
+          ssh -o ConnectTimeout=15 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "cd '$DEPLOY_PATH' && if command -v docker-compose >/dev/null 2>&1; then docker-compose logs --tail=100 opensaas-app; else docker compose logs --tail=100 opensaas-app; fi"
