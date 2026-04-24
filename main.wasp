@@ -158,10 +158,22 @@ page UserDashboardPage {
   component: import UserDashboardPage from "@src/user/UserDashboardPage"
 }
 
+route DashboardWhatsAppRoute { path: "/dashboard/whatsapp", to: DashboardWhatsAppPage }
+page DashboardWhatsAppPage {
+  authRequired: true,
+  component: import WhatsAppPage from "@src/user/WhatsAppPage"
+}
+
 route WhatsAppRoute { path: "/whatsapp", to: WhatsAppPage }
 page WhatsAppPage {
   authRequired: true,
   component: import WhatsAppPage from "@src/user/WhatsAppPage"
+}
+
+route DashboardApiSetupRoute { path: "/dashboard/api-setup", to: DashboardWhatsAppSetupPage }
+page DashboardWhatsAppSetupPage {
+  authRequired: true,
+  component: import WhatsAppSetupPage from "@src/whatsapp/WhatsAppSetupPage"
 }
 
 route WhatsAppSetupRoute { path: "/whatsapp/setup", to: WhatsAppSetupPage }
@@ -174,6 +186,12 @@ route BillingRoute { path: "/billing", to: BillingPage }
 page BillingPage {
   authRequired: true,
   component: import BillingPage from "@src/billing/BillingPage"
+}
+
+route DashboardContactsRoute { path: "/dashboard/contacts", to: DashboardContactsPage }
+page DashboardContactsPage {
+  authRequired: true,
+  component: import ContactsPage from "@src/user/ContactsPage"
 }
 
 route ContactsRoute { path: "/contacts", to: ContactsPage }
@@ -217,6 +235,31 @@ query getOnboardingState {
 
 action saveOnboardingProgress {
   fn: import { saveOnboardingProgress } from "@src/user/onboarding/operations",
+  entities: [User, Organization]
+}
+
+query getWhatsAppWorkspaceState {
+  fn: import { getWhatsAppWorkspaceState } from "@src/whatsapp/operations",
+  entities: [User, Organization]
+}
+
+action startWhatsAppQrHandshake {
+  fn: import { startWhatsAppQrHandshake } from "@src/whatsapp/operations",
+  entities: [User, Organization]
+}
+
+action refreshWhatsAppQrStatus {
+  fn: import { refreshWhatsAppQrStatus } from "@src/whatsapp/operations",
+  entities: [User, Organization]
+}
+
+action updateJenniferStatus {
+  fn: import { updateJenniferStatus } from "@src/whatsapp/operations",
+  entities: [User, Organization]
+}
+
+action disconnectWhatsAppQr {
+  fn: import { disconnectWhatsAppQr } from "@src/whatsapp/operations",
   entities: [User, Organization]
 }
 //#endregion

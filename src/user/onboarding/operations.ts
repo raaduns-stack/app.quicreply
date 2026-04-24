@@ -3,6 +3,7 @@ import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../../server/validation";
 import {
   apiStatusValues,
+  onboardingFlowValues,
   primaryGoalValues,
   trafficSourceValues,
   whatsappModeValues,
@@ -15,8 +16,9 @@ const settingsSchema = z.object({
 });
 
 const onboardingInputSchema = z.object({
-  step: z.number().int().min(1).max(6),
+  step: z.number().int().min(1).max(4),
   complete: z.boolean().optional().default(false),
+  flow: z.enum(onboardingFlowValues),
   businessName: z.string().trim(),
   phoneNumber: z.string().trim(),
   industry: z.string().trim(),
@@ -32,6 +34,7 @@ const onboardingInputSchema = z.object({
   businessDescription: z.string().trim(),
   productsServices: z.string().trim(),
   firstAiMessage: z.string().trim(),
+  isAiActive: z.boolean(),
 });
 
 type OnboardingInput = z.infer<typeof onboardingInputSchema>;
@@ -40,6 +43,7 @@ type OnboardingState = {
   onboardingCompleted: boolean;
   onboardingStep: number;
   organization: {
+    flow: string;
     name: string;
     phoneNumber: string;
     industry: string;
@@ -57,6 +61,7 @@ type OnboardingState = {
     businessDescription: string;
     productsServices: string;
     firstAiMessage: string;
+    isAiActive: boolean;
   } | null;
 };
 
@@ -76,9 +81,6 @@ function validateStepRequirements(args: OnboardingInput) {
     if (!args.businessName) {
       throw new HttpError(400, "Business name is required.");
     }
-    if (!args.phoneNumber) {
-      throw new HttpError(400, "Phone number is required.");
-    }
     if (!args.industry) {
       throw new HttpError(400, "Industry is required.");
     }
@@ -90,15 +92,12 @@ function validateStepRequirements(args: OnboardingInput) {
     }
   }
 
-  if (args.step >= 6) {
+  if (args.step >= 4) {
     if (!args.businessDescription) {
       throw new HttpError(400, "Business context is required.");
     }
     if (!args.productsServices) {
       throw new HttpError(400, "Products or services are required.");
-    }
-    if (!args.firstAiMessage) {
-      throw new HttpError(400, "First AI message is required.");
     }
   }
 }
@@ -123,6 +122,7 @@ export const getOnboardingState = async (
         country: true,
         primaryGoal: true,
         trafficSources: true,
+        flow: true,
         whatsappMode: true,
         qrConnected: true,
         apiStatus: true,
@@ -130,6 +130,7 @@ export const getOnboardingState = async (
         businessDescription: true,
         productsServices: true,
         firstAiMessage: true,
+        isAiActive: true,
       },
     }),
   ]);
@@ -146,6 +147,7 @@ export const getOnboardingState = async (
     organization: organization
       ? {
           ...organization,
+          flow: organization.flow ?? "sales",
           name: organization.name ?? "",
           phoneNumber: organization.phoneNumber ?? "",
           industry: organization.industry ?? "",
@@ -165,6 +167,7 @@ export const getOnboardingState = async (
           businessDescription: organization.businessDescription ?? "",
           productsServices: organization.productsServices ?? "",
           firstAiMessage: organization.firstAiMessage ?? "",
+          isAiActive: organization.isAiActive ?? true,
         }
       : null,
   };
@@ -190,6 +193,7 @@ export const saveOnboardingProgress = async (
     await tx.organization.upsert({
       where: { userId },
       update: {
+        flow: args.flow,
         name: args.businessName,
         phoneNumber: args.phoneNumber,
         industry: args.industry,
@@ -207,9 +211,11 @@ export const saveOnboardingProgress = async (
         businessDescription: args.businessDescription,
         productsServices: args.productsServices,
         firstAiMessage: args.firstAiMessage,
+        isAiActive: args.isAiActive,
       },
       create: {
         userId,
+        flow: args.flow,
         name: args.businessName,
         phoneNumber: args.phoneNumber,
         industry: args.industry,
@@ -227,6 +233,7 @@ export const saveOnboardingProgress = async (
         businessDescription: args.businessDescription,
         productsServices: args.productsServices,
         firstAiMessage: args.firstAiMessage,
+        isAiActive: args.isAiActive,
       },
     });
 

@@ -1,15 +1,23 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+  ArrowLeft,
+  ArrowRight,
   Bot,
-  Building2,
+  Check,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  MessageCircleMore,
-  Phone,
-  ShieldCheck,
+  Database,
+  Flag,
+  Link2,
+  Loader2,
+  Lightbulb,
+  Megaphone,
+  QrCode,
+  Rocket,
+  Shield,
+  Sparkles,
+  Store,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
 import {
@@ -20,17 +28,16 @@ import {
 import { routes } from "wasp/client/router";
 import { type AuthUser } from "wasp/auth";
 import * as z from "zod";
-import { Button } from "../../client/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../client/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../../client/components/ui/form";
-import { Input } from "../../client/components/ui/input";
-import { Progress } from "../../client/components/ui/progress";
-import { Switch } from "../../client/components/ui/switch";
-import { Textarea } from "../../client/components/ui/textarea";
 import { useToast } from "../../client/hooks/use-toast";
-import TextLogoDark from "../../client/static/logos/TextLogo_light.png";
+import TextLogoLight from "../../client/static/logos/TextLogo_light.png";
+import { cn } from "../../client/utils";
 import {
   apiStatusValues,
+  countryOptions,
+  industryOptions,
+  onboardingFlowContent,
+  onboardingFlowOptions,
+  onboardingFlowValues,
   onboardingSteps,
   primaryGoalOptions,
   primaryGoalValues,
@@ -41,8 +48,9 @@ import {
 } from "./constants";
 
 const onboardingFormSchema = z.object({
+  flow: z.enum(onboardingFlowValues),
   businessName: z.string().trim().min(1, "Business name is required."),
-  phoneNumber: z.string().trim().min(1, "Phone number is required."),
+  phoneNumber: z.string().trim(),
   industry: z.string().trim().min(1, "Industry is required."),
   country: z.string().trim().min(1, "Country is required."),
   primaryGoal: z.enum(primaryGoalValues, {
@@ -57,20 +65,28 @@ const onboardingFormSchema = z.object({
   saveNewChats: z.boolean(),
   autoTag: z.boolean(),
   notificationsEnabled: z.boolean(),
-  businessDescription: z.string().trim().min(1, "Business context is required."),
-  productsServices: z.string().trim().min(1, "Products or services are required."),
-  firstAiMessage: z.string().trim().min(1, "First AI message is required."),
+  businessDescription: z
+    .string()
+    .trim()
+    .min(1, "Business context is required."),
+  productsServices: z
+    .string()
+    .trim()
+    .min(1, "Products or services are required."),
+  firstAiMessage: z.string().trim(),
+  isAiActive: z.boolean(),
 });
 
 type OnboardingFormValues = z.infer<typeof onboardingFormSchema>;
 
 const defaultValues: OnboardingFormValues = {
+  flow: "sales",
   businessName: "",
   phoneNumber: "",
   industry: "",
   country: "",
   primaryGoal: "generate_leads",
-  trafficSources: ["whatsapp"],
+  trafficSources: [],
   whatsappMode: "qr",
   qrConnected: false,
   apiStatus: "none",
@@ -79,163 +95,126 @@ const defaultValues: OnboardingFormValues = {
   notificationsEnabled: false,
   businessDescription: "",
   productsServices: "",
-  firstAiMessage:
-    "Hi there! Thanks for reaching out to QuicReply. Tell me what you need and I’ll guide you from here.",
+  firstAiMessage: onboardingFlowContent.sales.firstMessagePlaceholder,
+  isAiActive: true,
 };
 
 const stepFields: Record<number, Array<keyof OnboardingFormValues>> = {
-  1: ["businessName", "phoneNumber", "industry", "country"],
-  2: ["primaryGoal"],
-  3: ["trafficSources"],
-  4: ["whatsappMode"],
-  5: ["businessDescription", "productsServices", "firstAiMessage"],
-  6: [],
+  1: ["businessName", "industry", "country", "primaryGoal", "trafficSources"],
+  2: [],
+  3: ["businessDescription", "productsServices", "firstAiMessage"],
+  4: [],
 };
 
-const leftRailHighlights: Record<number, string[]> = {
-  1: [
-    "Brand identity locked in",
-    "Contact details saved",
-    "Industry context captured",
-  ],
-  2: [
-    "Revenue goal focused",
-    "Workspace intent defined",
-    "Priority outcome set",
-  ],
-  3: [
-    "Traffic sources mapped",
-    "Lead channels identified",
-    "Inbox routing ready",
-  ],
-  4: [
-    "QR is the default instant path",
-    "API stays available for scaling",
-    "No sidebar distractions until setup is done",
-  ],
-  5: [
-    "Lead rules switch on from day one",
-    "AI learns your offer and tone",
-    "First reply is ready before launch",
-  ],
-  6: [
-    "Workspace profile confirmed",
-    "WhatsApp route chosen",
-    "AI sales rep primed",
-  ],
-};
+const progressSteps = [
+  { step: 1, icon: Store },
+  { step: 2, icon: Link2 },
+  { step: 3, icon: Bot },
+  { step: 4, icon: Flag },
+] as const;
 
-function StepBullet({
-  index,
-  currentStep,
-  title,
+function StepDot({
+  icon: Icon,
+  state,
 }: {
-  index: number;
-  currentStep: number;
-  title: string;
+  icon: (typeof progressSteps)[number]["icon"];
+  state: "upcoming" | "active" | "done";
 }) {
-  const isActive = currentStep === index;
-  const isComplete = currentStep > index;
-
   return (
     <div
-      className={`rounded-2xl border px-4 py-3 transition ${
-        isActive
-          ? "border-[#f4bb7a] bg-[rgba(254,144,29,0.09)]"
-          : "border-[#ece6de] bg-white/85"
-      }`}
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-all",
+        state === "active" &&
+          "border-[#fe901d] bg-[#fe901d] text-white",
+        state === "done" &&
+          "border-[#fe901d] bg-[rgba(254,144,29,0.08)] text-[#fe901d]",
+        state === "upcoming" && "border-[#e5e7eb] bg-white text-[#9ca3af]",
+      )}
     >
-      <div className="flex items-center gap-3">
-        <div
-          className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-extrabold ${
-            isComplete || isActive
-              ? "bg-primary text-white"
-              : "bg-[#f6f6f6] text-[#8c8c8c]"
-          }`}
-        >
-          {isComplete ? <CheckCircle2 className="h-4 w-4" /> : index}
-        </div>
-        <div>
-          <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#9b8f82]">
-            Step {index}
-          </p>
-          <p className="text-sm font-semibold text-[#191c1d]">{title}</p>
-        </div>
-      </div>
+      {state === "done" ? (
+        <Check className="h-4 w-4" strokeWidth={3} />
+      ) : (
+        <Icon className="h-4 w-4" strokeWidth={2.2} />
+      )}
     </div>
   );
+}
+
+function ProgressStepper({ currentStep }: { currentStep: number }) {
+  return (
+    <div className="flex items-center px-4">
+      {progressSteps.map((item, index) => {
+        const isDone = currentStep > item.step;
+        const isActive = currentStep === item.step;
+
+        return (
+          <div key={item.step} className="flex flex-1 items-center">
+            <StepDot
+              icon={item.icon}
+              state={isDone ? "done" : isActive ? "active" : "upcoming"}
+            />
+            {index < progressSteps.length - 1 ? (
+              <div
+                className={cn(
+                  "h-[2px] flex-1 transition-colors",
+                  currentStep > item.step ? "bg-[#fe901d]" : "bg-[#e5e7eb]",
+                )}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("rounded-[20px] border border-[#e5e7eb] bg-white p-5", className)}>
+      {children}
+    </div>
+  );
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) {
+    return null;
+  }
+
+  return <p className="text-sm font-medium text-red-600">{message}</p>;
 }
 
 function SelectionCard({
   active,
-  title,
-  description,
-  eyebrow,
-  badge,
-  accent = "primary",
-  onClick,
   children,
+  className,
+  onClick,
 }: {
   active: boolean;
-  title: string;
-  description: string;
-  eyebrow?: string;
-  badge?: string;
-  accent?: "primary" | "muted";
+  children: ReactNode;
+  className?: string;
   onClick?: () => void;
-  children?: React.ReactNode;
 }) {
   return (
     <button
-      className={`w-full cursor-pointer rounded-2xl border p-4 text-left transition ${
+      className={cn(
+        "block w-full cursor-pointer rounded-[18px] border-[1.5px] bg-white p-4 text-left transition duration-200 disabled:cursor-not-allowed",
         active
-          ? "border-[#f4bb7a] bg-[rgba(254,144,29,0.09)] shadow-[0_18px_36px_-24px_rgba(254,144,29,0.65)]"
-          : "border-[#ece6de] bg-white hover:border-[#f4d1a7]"
-      }`}
+          ? "border-[#fe901d] bg-[linear-gradient(180deg,rgba(254,144,29,0.08),rgba(254,144,29,0.03))]"
+          : "border-[#e5e7eb] hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(15,23,42,0.04)]",
+        className,
+      )}
       onClick={onClick}
       type="button"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          {eyebrow ? (
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#a98a66]">
-              {eyebrow}
-            </p>
-          ) : null}
-          <h3 className="mt-1 text-base font-extrabold tracking-[-0.02em] text-[#191c1d]">
-            {title}
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-[#5f5e5e]">{description}</p>
-        </div>
-        <div
-          className={`rounded-full px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.12em] ${
-            active || accent === "primary"
-              ? "bg-[rgba(254,144,29,0.14)] text-primary"
-              : "bg-[#f3f4f6] text-[#7c7c7c]"
-          }`}
-        >
-          {badge}
-        </div>
-      </div>
-      {children ? <div className="mt-4">{children}</div> : null}
+      {children}
     </button>
-  );
-}
-
-function SummaryRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-[#efe6dc] bg-[#fffdf9] px-4 py-3">
-      <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#a98a66]">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-semibold leading-6 text-[#191c1d]">{value}</p>
-    </div>
   );
 }
 
@@ -245,6 +224,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
   const { data, isLoading, error } = useQuery(getOnboardingState);
   const [currentStep, setCurrentStep] = useState(1);
   const [isSavingStep, setIsSavingStep] = useState(false);
+  const [showQrFlow, setShowQrFlow] = useState(false);
+  const [showTrainingOverlay, setShowTrainingOverlay] = useState(false);
   const isOnboardingCompleted =
     (user as AuthUser & { onboardingCompleted?: boolean }).onboardingCompleted ===
     true;
@@ -256,9 +237,9 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
   });
 
   const watchedValues = form.watch();
-  const currentStepMeta = onboardingSteps[currentStep - 1];
-  const totalSteps = onboardingSteps.length;
-  const progressValue = (currentStep / totalSteps) * 100;
+  const currentFlow = watchedValues.flow;
+  const flowCopy = onboardingFlowContent[currentFlow];
+  const stepMeta = onboardingSteps[currentStep - 1];
 
   useEffect(() => {
     if (isOnboardingCompleted || data?.onboardingCompleted) {
@@ -271,13 +252,18 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       return;
     }
 
-    setCurrentStep(Math.min(Math.max(data.onboardingStep || 1, 1), 6));
+    const nextStep = Math.min(Math.max(data.onboardingStep || 1, 1), 4);
+    setCurrentStep(nextStep);
 
     if (!data.organization) {
+      setShowQrFlow(false);
       return;
     }
 
     form.reset({
+      flow:
+        (data.organization.flow as OnboardingFormValues["flow"]) ||
+        defaultValues.flow,
       businessName: data.organization.name || "",
       phoneNumber: data.organization.phoneNumber || "",
       industry: data.organization.industry || "",
@@ -290,8 +276,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           trafficSourceValues.includes(
             source as (typeof trafficSourceValues)[number],
           ),
-        ) as OnboardingFormValues["trafficSources"]) ||
-        defaultValues.trafficSources,
+        ) as OnboardingFormValues["trafficSources"]) || [],
       whatsappMode:
         (data.organization.whatsappMode as OnboardingFormValues["whatsappMode"]) ||
         defaultValues.whatsappMode,
@@ -306,37 +291,16 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       productsServices: data.organization.productsServices || "",
       firstAiMessage:
         data.organization.firstAiMessage || defaultValues.firstAiMessage,
+      isAiActive: data.organization.isAiActive ?? defaultValues.isAiActive,
     });
-  }, [data, form]);
 
-  const summaryValues = useMemo(
-    () => ({
-      trafficSources:
-        watchedValues.trafficSources
-          .map(
-            (source) =>
-              trafficSourceOptions.find((option) => option.value === source)?.label ||
-              source,
-          )
-          .join(", ") || "None selected",
-      primaryGoal:
-        primaryGoalOptions.find(
-          (option) => option.value === watchedValues.primaryGoal,
-        )?.label || "Not selected",
-      whatsappMode:
-        whatsappModeOptions.find(
-          (option) => option.value === watchedValues.whatsappMode,
-        )?.label || "Not selected",
-      leadRules: [
-        watchedValues.saveNewChats ? "Save new chats" : null,
-        watchedValues.autoTag ? "Auto-tag leads" : null,
-        watchedValues.notificationsEnabled ? "Notifications on" : "Notifications off",
-      ]
-        .filter(Boolean)
-        .join(", "),
-    }),
-    [watchedValues],
-  );
+    setShowQrFlow(
+      nextStep === 2 &&
+        (data.organization.whatsappMode === "qr" ||
+          data.organization.whatsappMode === null) &&
+        Boolean(data.organization.qrConnected),
+    );
+  }, [data, form]);
 
   async function persistStep(step: number, complete = false) {
     const values = form.getValues();
@@ -361,666 +325,1005 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
     }
   }
 
-  async function handleNext() {
-    const fields = stepFields[currentStep];
-    const isValid = await form.trigger(fields, { shouldFocus: true });
+  async function handleBusinessContinue() {
+    const isValid = await form.trigger(stepFields[1], { shouldFocus: true });
     if (!isValid) {
       return;
     }
 
-    const nextStep = Math.min(currentStep + 1, 6);
-    const saved = await persistStep(nextStep, false);
-    if (saved) {
-      setCurrentStep(nextStep);
+    const saved = await persistStep(2, false);
+    if (!saved) {
+      return;
     }
+
+    setShowQrFlow(false);
+    setCurrentStep(2);
   }
 
-  async function handleComplete() {
-    const fieldsToValidate = [
-      ...stepFields[1],
-      ...stepFields[2],
-      ...stepFields[3],
-      ...stepFields[4],
-      ...stepFields[5],
-    ];
-    const isValid = await form.trigger(fieldsToValidate, { shouldFocus: true });
-    if (!isValid) {
+  async function handleWhatsappPrimaryAction() {
+    if (watchedValues.whatsappMode === "api") {
+      form.setValue("apiStatus", "pending", { shouldDirty: true });
+      const saved = await persistStep(3, false);
+      if (!saved) {
+        return;
+      }
+      setShowQrFlow(false);
+      setCurrentStep(3);
       return;
     }
 
-    const saved = await persistStep(6, true);
+    form.setValue("qrConnected", true, { shouldDirty: true });
+    const saved = await persistStep(2, false);
+    if (!saved) {
+      return;
+    }
+
+    setShowQrFlow(true);
+  }
+
+  async function handleQrComplete() {
+    const saved = await persistStep(3, false);
     if (!saved) {
       return;
     }
 
     toast({
-      title: "Onboarding complete",
-      description: "Your workspace is ready. Unlocking the dashboard now.",
+      title: "QR connected successfully",
+      description: "Your instant revenue engine is ready to keep moving.",
+    });
+    setShowQrFlow(false);
+    setCurrentStep(3);
+  }
+
+  async function handleAiContinue() {
+    const isValid = await form.trigger(stepFields[3], { shouldFocus: true });
+    if (!isValid) {
+      return;
+    }
+
+    setShowTrainingOverlay(true);
+
+    window.setTimeout(async () => {
+      const saved = await persistStep(4, false);
+      setShowTrainingOverlay(false);
+
+      if (!saved) {
+        return;
+      }
+
+      setCurrentStep(4);
+    }, 2400);
+  }
+
+  async function handleFinish() {
+    const saved = await persistStep(4, true);
+    if (!saved) {
+      return;
+    }
+
+    toast({
+      title: "Revenue engine primed",
+      description: "Unlocking your dashboard now.",
     });
     window.location.assign(routes.UserPageRoute.to);
   }
 
+  const nextButtonBusy = isSavingStep || showTrainingOverlay;
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#fcfcfc] text-[#191c1d]">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-[-10%] top-[-10%] h-[32rem] w-[32rem] rounded-full bg-[radial-gradient(circle,rgba(254,144,29,0.14)_0%,transparent_70%)] blur-[100px]" />
-        <div className="absolute bottom-[-18%] right-[-5%] h-[26rem] w-[26rem] rounded-full bg-[radial-gradient(circle,rgba(254,144,29,0.10)_0%,transparent_72%)] blur-[100px]" />
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(254,144,29,0.10),transparent_28%),#fffdf8] text-[#191c1d]">
+      <div className="sticky top-0 z-30 border-b border-[#e5e7eb] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between px-5">
+          <div className="flex items-center gap-3">
+            <img alt="QuicReply" className="h-8 w-auto" src={TextLogoLight} />
+          </div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#6b7280]">
+            {stepMeta.badge}
+          </p>
+        </div>
       </div>
 
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-8 lg:px-10">
-        <div className="flex items-center justify-between">
-          <a href="https://www.quicreply.io/" className="inline-flex cursor-pointer">
-            <img src={TextLogoDark} alt="QuicReply" className="h-8 w-auto" />
-          </a>
-          <div className="rounded-full border border-[rgba(254,144,29,0.18)] bg-[rgba(254,144,29,0.08)] px-4 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.18em] text-primary">
-            {currentStepMeta.badge}
-          </div>
-        </div>
+      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1100px] items-center justify-center px-6 py-10 pb-20">
+        <div className="w-full space-y-6">
+          <ProgressStepper currentStep={currentStep} />
 
-        <div className="grid flex-1 gap-8 py-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
-          <div className="max-w-2xl">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#e5e7eb] bg-white/80 px-4 py-2 text-sm font-semibold text-[#5f5e5e] shadow-sm backdrop-blur">
-              <Building2 className="h-4 w-4 text-primary" strokeWidth={2.2} />
-              Revenue Sales OS setup
+          {isLoading ? (
+            <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-[#e5e7eb] bg-white text-sm font-medium text-[#5f5e5e]">
+              Loading your onboarding workspace...
             </div>
-            <h1 className="max-w-xl text-4xl font-black tracking-[-0.05em] text-[#191c1d] sm:text-5xl">
-              {currentStepMeta.headline}
-            </h1>
-            <p className="mt-5 max-w-xl text-lg leading-8 text-[#5f5e5e]">
-              {currentStepMeta.description}
-            </p>
-
-            <div className="mt-8 grid gap-3">
-              {onboardingSteps.map((step) => (
-                <StepBullet
-                  key={step.step}
-                  currentStep={currentStep}
-                  index={step.step}
-                  title={step.title}
-                />
-              ))}
+          ) : error ? (
+            <div className="rounded-[20px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-600">
+              We could not load your onboarding state right now. Refresh and try again.
             </div>
-
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
-              {leftRailHighlights[currentStep].map((item) => (
-                <Card
-                  key={item}
-                  className="border-[#f4d1a7] bg-white/80 shadow-[0_16px_40px_-20px_rgba(254,144,29,0.25)]"
-                >
-                  <CardContent className="flex items-center gap-3 p-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(254,144,29,0.12)] text-primary">
-                      <CheckCircle2 className="h-5 w-5" strokeWidth={2.4} />
+          ) : (
+            <>
+              {currentStep === 1 ? (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff1df] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.05em] text-[#c96a00]">
+                        {flowCopy.step1Badge}
+                      </span>
+                      <h1 className="mt-3 text-3xl font-black text-gray-900">
+                        {flowCopy.step1Headline}
+                      </h1>
+                      <p className="mt-2 max-w-2xl text-gray-600">
+                        {flowCopy.step1Description}
+                      </p>
                     </div>
-                    <p className="text-sm font-semibold text-[#191c1d]">{item}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
+                    <div className="max-w-sm rounded-xl border border-[#e5e7eb] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.015)]">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
+                        {flowCopy.flowLabel} Active
+                      </p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        `org.flow`, `org.name`, `org.primaryGoal`, `org.trafficSources`
+                      </p>
+                    </div>
+                  </div>
 
-          <Card className="border-[#f1e2cf] bg-white/95 shadow-[0_24px_80px_-30px_rgba(0,0,0,0.18)]">
-            <CardHeader className="space-y-3 border-b border-[#f3f4f6]">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <CardTitle className="text-2xl font-black tracking-[-0.04em]">
-                    {currentStepMeta.title}
-                  </CardTitle>
-                  <CardDescription className="mt-2 text-[15px] leading-6 text-[#5f5e5e]">
-                    Complete this step to move the workspace closer to launch.
-                  </CardDescription>
-                </div>
-                <div className="min-w-[118px]">
-                  <Progress className="h-2 bg-[#f6ede3]" value={progressValue} />
-                  <p className="mt-2 text-right text-xs font-semibold uppercase tracking-[0.14em] text-[#a98a66]">
-                    {Math.round(progressValue)}% ready
-                  </p>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-6">
-              {isLoading ? (
-                <div className="flex min-h-[420px] items-center justify-center text-sm font-medium text-[#5f5e5e]">
-                  Loading your onboarding workspace...
-                </div>
-              ) : error ? (
-                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-4 text-sm font-medium text-destructive">
-                  We could not load your onboarding state right now. Refresh and try again.
-                </div>
-              ) : (
-                <Form {...form}>
-                  <form className="space-y-6" onSubmit={(event) => event.preventDefault()}>
-                    {currentStep === 1 ? (
-                      <div className="space-y-6">
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <FormField
-                            control={form.control}
-                            name="businessName"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Business Name</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="QuicReply" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                  <SectionCard className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-[#fe901d]" />
+                      <h2 className="text-base font-bold text-gray-900">
+                        Choose your engine
+                      </h2>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {onboardingFlowOptions.map((option) => {
+                        const selected = currentFlow === option.value;
+                        const icon =
+                          option.value === "sales" ? (
+                            <Bot className="h-5 w-5 text-[#fe901d]" />
+                          ) : (
+                            <Megaphone className="h-5 w-5 text-[#fe901d]" />
+                          );
 
-                          <FormField
-                            control={form.control}
-                            name="phoneNumber"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Phone Number</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9ca3af]" />
-                                    <Input
-                                      className="pl-10"
-                                      placeholder="+1 555 123 4567"
-                                      type="tel"
-                                      {...field}
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                        return (
+                          <SelectionCard
+                            key={option.value}
+                            active={selected}
+                            onClick={() => {
+                              const previousFlow = form.getValues("flow");
+                              const previousDefault =
+                                onboardingFlowContent[previousFlow].firstMessagePlaceholder;
+                              const nextDefault =
+                                onboardingFlowContent[option.value].firstMessagePlaceholder;
 
-                          <FormField
-                            control={form.control}
-                            name="industry"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Industry</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Coaching, retail, SaaS..." {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                              form.setValue("flow", option.value, {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                              });
 
-                          <FormField
-                            control={form.control}
-                            name="country"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Country</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="United States" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                              const currentMessage = form.getValues("firstAiMessage");
+                              if (!currentMessage || currentMessage === previousDefault) {
+                                form.setValue("firstAiMessage", nextDefault, {
+                                  shouldDirty: true,
+                                });
+                              }
+                            }}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="space-y-3">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1df] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#c96a00]">
+                                  {option.eyebrow}
+                                </span>
+                                <div>
+                                  <h3 className="text-lg font-bold text-gray-900">
+                                    {option.label}
+                                  </h3>
+                                  <p className="mt-1 text-sm text-gray-600">
+                                    {option.description}
+                                  </p>
+                                </div>
+                                <ul className="space-y-1.5 text-sm text-gray-600">
+                                  {option.points.map((point) => (
+                                    <li key={point} className="flex items-center gap-2">
+                                      <CheckCircle2 className="h-4 w-4 text-[#fe901d]" />
+                                      {point}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[rgba(254,144,29,0.14)]">
+                                {icon}
+                              </div>
+                            </div>
+                          </SelectionCard>
+                        );
+                      })}
+                    </div>
+                  </SectionCard>
+
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_.8fr]">
+                    <div className="space-y-6">
+                      <SectionCard className="space-y-5">
+                        <div className="flex items-center gap-2">
+                          <Store className="h-5 w-5 text-[#fe901d]" />
+                          <h2 className="text-base font-bold text-gray-900">
+                            A. Business Info
+                          </h2>
                         </div>
-                      </div>
-                    ) : null}
 
-                    {currentStep === 2 ? (
-                      <div className="space-y-4">
-                        <div className="space-y-3">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">
+                              Business Name
+                            </label>
+                            <input
+                              className="w-full rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
+                              placeholder="Acme Growth Studio"
+                              {...form.register("businessName")}
+                            />
+                            <FieldError
+                              message={form.formState.errors.businessName?.message}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">
+                              Industry
+                            </label>
+                            <select
+                              className="w-full cursor-pointer rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
+                              {...form.register("industry")}
+                            >
+                              <option value="">Select industry</option>
+                              {industryOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <FieldError
+                              message={form.formState.errors.industry?.message}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">
+                              Country
+                            </label>
+                            <select
+                              className="w-full cursor-pointer rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
+                              {...form.register("country")}
+                            >
+                              <option value="">Select country</option>
+                              {countryOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <FieldError
+                              message={form.formState.errors.country?.message}
+                            />
+                          </div>
+                        </div>
+                      </SectionCard>
+
+                      <SectionCard className="space-y-5">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="h-5 w-5 text-[#fe901d]" />
+                          <h2 className="text-base font-bold text-gray-900">
+                            B. Revenue Goal
+                          </h2>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
                           {primaryGoalOptions.map((option) => {
                             const selected = watchedValues.primaryGoal === option.value;
                             return (
-                              <button
+                              <SelectionCard
                                 key={option.value}
-                                className={`w-full cursor-pointer rounded-2xl border px-4 py-4 text-left transition ${
-                                  selected
-                                    ? "border-[#f4bb7a] bg-[rgba(254,144,29,0.09)]"
-                                    : "border-[#ece6de] bg-white hover:border-[#f4d1a7]"
-                                }`}
+                                active={selected}
                                 onClick={() =>
                                   form.setValue("primaryGoal", option.value, {
                                     shouldDirty: true,
                                     shouldValidate: true,
                                   })
                                 }
-                                type="button"
                               >
-                                <div className="flex items-start justify-between gap-4">
-                                  <div>
-                                    <h3 className="text-base font-extrabold tracking-[-0.02em] text-[#191c1d]">
-                                      {option.label}
-                                    </h3>
-                                    <p className="mt-1 text-sm text-[#5f5e5e]">
-                                      {option.description}
-                                    </p>
-                                  </div>
-                                  <div
-                                    className={`mt-1 h-4 w-4 rounded-full border ${
-                                      selected
-                                        ? "border-primary bg-primary"
-                                        : "border-[#d1d5db] bg-white"
-                                    }`}
-                                  />
+                                <div className="font-semibold text-gray-900">
+                                  {option.label}
                                 </div>
-                              </button>
+                                <p className="mt-1 text-xs text-gray-600">
+                                  {option.description}
+                                </p>
+                              </SelectionCard>
                             );
                           })}
                         </div>
-                        <FormMessage>{form.formState.errors.primaryGoal?.message}</FormMessage>
-                      </div>
-                    ) : null}
+                        <FieldError
+                          message={form.formState.errors.primaryGoal?.message}
+                        />
+                      </SectionCard>
 
-                    {currentStep === 3 ? (
-                      <div className="space-y-4">
-                        <div className="grid gap-3 sm:grid-cols-2">
+                      <SectionCard className="space-y-5">
+                        <div className="flex items-center gap-2">
+                          <Link2 className="h-5 w-5 text-[#fe901d]" />
+                          <h2 className="text-base font-bold text-gray-900">
+                            C. Traffic Source
+                          </h2>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
                           {trafficSourceOptions.map((option) => {
-                            const isChecked = watchedValues.trafficSources.includes(option.value);
-                            const toggleTrafficSource = () => {
-                              const currentSources = form.getValues("trafficSources");
-                              const nextSources = currentSources.includes(option.value)
-                                ? currentSources.filter((value) => value !== option.value)
-                                : [...currentSources, option.value];
-                              form.setValue("trafficSources", nextSources, {
+                            const selected = watchedValues.trafficSources.includes(
+                              option.value,
+                            );
+                            return (
+                              <SelectionCard
+                                key={option.value}
+                                active={selected}
+                                onClick={() => {
+                                  const currentSources = form.getValues("trafficSources");
+                                  const nextSources = currentSources.includes(option.value)
+                                    ? currentSources.filter(
+                                        (value) => value !== option.value,
+                                      )
+                                    : [...currentSources, option.value];
+                                  form.setValue("trafficSources", nextSources, {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  });
+                                }}
+                              >
+                                <div className="font-semibold text-gray-900">
+                                  {option.label}
+                                </div>
+                                <p className="mt-1 text-xs text-gray-600">
+                                  {option.value === "ads" &&
+                                    "Facebook, Instagram, Google, or TikTok traffic."}
+                                  {option.value === "website" &&
+                                    "Leads coming through landing pages or forms."}
+                                  {option.value === "whatsapp" &&
+                                    "Existing conversations and direct replies."}
+                                  {option.value === "other" &&
+                                    "Any other acquisition source you want to track."}
+                                </p>
+                              </SelectionCard>
+                            );
+                          })}
+                        </div>
+                        <FieldError
+                          message={form.formState.errors.trafficSources?.message}
+                        />
+                      </SectionCard>
+                    </div>
+
+                    <aside className="space-y-6">
+                      <SectionCard className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-5 w-5 text-[#fe901d]" />
+                          <h2 className="text-base font-bold text-gray-900">
+                            Revenue OS Profile
+                          </h2>
+                        </div>
+                        <ul className="space-y-3 text-sm text-gray-600">
+                          <li className="flex gap-2">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                            <span>
+                              <strong className="text-gray-900">org.name</strong>:
+                              {" "}Business identity.
+                            </span>
+                          </li>
+                          <li className="flex gap-2">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                            <span>
+                              <strong className="text-gray-900">org.primaryGoal</strong>:
+                              {" "}Revenue outcome.
+                            </span>
+                          </li>
+                          <li className="flex gap-2">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                            <span>
+                              <strong className="text-gray-900">org.trafficSources</strong>:
+                              {" "}Funnel entry points.
+                            </span>
+                          </li>
+                        </ul>
+                      </SectionCard>
+
+                      <SectionCard className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <Lightbulb className="h-5 w-5 text-[#fe901d]" />
+                          <h2 className="text-base font-bold text-gray-900">
+                            Activation Tip
+                          </h2>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {flowCopy.step1Tip}
+                        </p>
+                      </SectionCard>
+
+                      <SectionCard className="space-y-3">
+                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
+                          DB mapping
+                        </p>
+                        <div className="rounded-2xl border border-[rgba(254,144,29,0.16)] bg-[rgba(254,144,29,0.08)] p-4 font-mono text-sm leading-6 text-gray-800">
+                          {"{"}
+                          <br />
+                          &nbsp;&nbsp;"flow": "{currentFlow}",
+                          <br />
+                          &nbsp;&nbsp;"primaryGoal": "...",
+                          <br />
+                          &nbsp;&nbsp;"trafficSources": [...]
+                          <br />
+                          {"}"}
+                        </div>
+                      </SectionCard>
+                    </aside>
+                  </div>
+
+                  <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+                    <button
+                      className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827] md:w-auto"
+                      onClick={() => navigate(routes.UserPageRoute.to)}
+                      type="button"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Back
+                    </button>
+
+                    <button
+                      className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed md:w-auto"
+                      disabled={nextButtonBusy}
+                      onClick={handleBusinessContinue}
+                      type="button"
+                    >
+                      {nextButtonBusy ? "Saving..." : "Continue to WhatsApp"}
+                      {nextButtonBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {currentStep === 2 ? (
+                <div className="space-y-6">
+                  <div className="text-center space-y-3">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff1df] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.05em] text-[#c96a00]">
+                      {flowCopy.step2Badge}
+                    </span>
+                    <h1 className="text-3xl font-black text-gray-900">
+                      Connect your WhatsApp
+                    </h1>
+                    <p className="mx-auto max-w-2xl text-gray-600">
+                      {flowCopy.step2Description}
+                    </p>
+                  </div>
+
+                  {!showQrFlow ? (
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      {whatsappModeOptions.map((option) => {
+                        const selected = watchedValues.whatsappMode === option.value;
+                        return (
+                          <SelectionCard
+                            key={option.value}
+                            active={selected}
+                            className="h-full rounded-[22px] p-5"
+                            onClick={() => {
+                              form.setValue("whatsappMode", option.value, {
                                 shouldDirty: true,
                                 shouldValidate: true,
                               });
-                            };
-                            return (
-                              <div
-                                key={option.value}
-                                aria-pressed={isChecked}
-                                className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-4 text-left transition ${
-                                  isChecked
-                                    ? "border-[#f4bb7a] bg-[rgba(254,144,29,0.09)]"
-                                    : "border-[#ece6de] bg-white hover:border-[#f4d1a7]"
-                                }`}
-                                onClick={toggleTrafficSource}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    toggleTrafficSource();
-                                  }
-                                }}
-                                role="button"
-                                tabIndex={0}
-                              >
-                                <div
-                                  aria-hidden="true"
-                                  className={`flex h-5 w-5 items-center justify-center rounded-md border transition ${
-                                    isChecked
-                                      ? "border-primary bg-primary text-white"
-                                      : "border-[#d1d5db] bg-white text-transparent"
-                                  }`}
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={3} />
-                                </div>
-                                <span className="text-sm font-semibold text-[#191c1d]">
-                                  {option.label}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <FormMessage>{form.formState.errors.trafficSources?.message}</FormMessage>
-                      </div>
-                    ) : null}
-
-                    {currentStep === 4 ? (
-                      <div className="space-y-6">
-                        <section className="space-y-4">
-                          <div>
-                            <h2 className="text-base font-extrabold tracking-[-0.02em] text-[#191c1d]">
-                              Choose your connection mode
-                            </h2>
-                            <p className="mt-1 text-sm text-[#5f5e5e]">
-                              QR stays highlighted as the default fast path. Official API is here when scale demands it.
-                            </p>
-                          </div>
-
-                          <div className="space-y-4">
-                            {whatsappModeOptions.map((option) => {
-                              const selected = watchedValues.whatsappMode === option.value;
-                              return (
-                                <SelectionCard
-                                  key={option.value}
-                                  active={selected}
-                                  badge={option.badge}
-                                  description={option.description}
-                                  eyebrow={option.eyebrow}
-                                  onClick={() => {
-                                    form.setValue("whatsappMode", option.value, {
-                                      shouldDirty: true,
-                                      shouldValidate: true,
-                                    });
-                                    form.setValue(
-                                      "apiStatus",
-                                      option.value === "api" ? "pending" : "none",
-                                      { shouldDirty: true },
-                                    );
-                                  }}
-                                  title={option.label}
-                                >
-                                  <div className="inline-flex rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-[#7a6e62]">
-                                    CTA: {option.cta}
-                                  </div>
-                                </SelectionCard>
+                              form.setValue(
+                                "apiStatus",
+                                option.value === "api" ? "pending" : "none",
+                                { shouldDirty: true },
                               );
-                            })}
-                          </div>
-                        </section>
-
-                        {watchedValues.whatsappMode === "qr" ? (
-                          <Card className="border-[#efe6dc] bg-[#fffdf9]">
-                            <CardContent className="flex items-start justify-between gap-4 p-5">
-                              <div>
+                              if (option.value !== "qr") {
+                                form.setValue("qrConnected", false, {
+                                  shouldDirty: true,
+                                });
+                              }
+                            }}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="space-y-3">
                                 <div className="flex items-center gap-2">
-                                  <MessageCircleMore className="h-4 w-4 text-primary" />
-                                  <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#a98a66]">
-                                    QR Mode
+                                  <span
+                                    className={cn(
+                                      "rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
+                                      option.value === "qr"
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : "bg-blue-100 text-blue-700",
+                                    )}
+                                  >
+                                    {option.value === "qr" ? "Option A" : "Option B"}
+                                  </span>
+                                  {option.value === "qr" ? (
+                                    <span className="rounded-full bg-[rgba(254,144,29,0.10)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#fe901d]">
+                                      Default
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <div>
+                                  <h2 className="text-xl font-bold text-gray-900">
+                                    {option.value === "qr"
+                                      ? "Connect instantly (Scan QR)"
+                                      : "Official WhatsApp API"}
+                                  </h2>
+                                  <p className="mt-1 text-sm text-gray-600">
+                                    {option.value === "qr"
+                                      ? "Perfect for handling high-intent leads and inbound conversations."
+                                      : "For high-volume messaging (>100 people/day). Requires Meta verification."}
                                   </p>
                                 </div>
-                                <h3 className="mt-2 text-base font-extrabold text-[#191c1d]">
-                                  Keep instant connect as your day-one engine
-                                </h3>
-                                <p className="mt-2 text-sm leading-6 text-[#5f5e5e]">
-                                  You can leave QR disconnected for now and finish the rest of onboarding first.
-                                </p>
+
+                                <ul className="space-y-2 text-sm text-gray-600">
+                                  {option.value === "qr" ? (
+                                    <>
+                                      <li className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                        No setup required
+                                      </li>
+                                      <li className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                        Instant connection
+                                      </li>
+                                      <li className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                        Daily limit: ~100 msgs
+                                      </li>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <li className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-blue-500" />
+                                        Business verification flow
+                                      </li>
+                                      <li className="flex items-center gap-2">
+                                        <CheckCircle2 className="h-4 w-4 text-blue-500" />
+                                        Unlimited messages & templates
+                                      </li>
+                                    </>
+                                  )}
+                                </ul>
                               </div>
-                              <FormField
-                                control={form.control}
-                                name="qrConnected"
-                                render={({ field }) => (
-                                  <FormItem className="flex items-center gap-3">
-                                    <FormLabel className="m-0 text-sm font-semibold text-[#191c1d]">
-                                      QR connected
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Switch
-                                        checked={field.value}
-                                        onCheckedChange={field.onChange}
-                                      />
-                                    </FormControl>
-                                  </FormItem>
+
+                              <div
+                                className={cn(
+                                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
+                                  option.value === "qr"
+                                    ? "bg-[rgba(254,144,29,0.14)]"
+                                    : "bg-blue-100",
                                 )}
-                              />
-                            </CardContent>
-                          </Card>
+                              >
+                                {option.value === "qr" ? (
+                                  <QrCode className="h-6 w-6 text-[#fe901d]" />
+                                ) : (
+                                  <Shield className="h-6 w-6 text-blue-600" />
+                                )}
+                              </div>
+                            </div>
+                          </SelectionCard>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_.9fr]">
+                      <SelectionCard active className="cursor-default space-y-5 rounded-[22px] p-5">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500">
+                            Scanning now
+                          </p>
+                          <h2 className="mt-1 text-2xl font-black text-gray-900">
+                            {currentFlow === "sales" ? "Scan for Sales OS" : "Scan for Broadcast OS"}
+                          </h2>
+                          <p className="mt-1 text-sm text-gray-600">
+                            Open WhatsApp {">"} Linked Devices {">"} Link a Device.
+                          </p>
+                        </div>
+
+                        <div className="relative mx-auto h-[240px] w-[240px] overflow-hidden rounded-[20px] border border-[#e5e7eb] bg-white">
+                          <div className="absolute inset-[14px] rounded-[14px] bg-[linear-gradient(135deg,#f8fafc,#ffffff)] opacity-90" />
+                          <div className="absolute inset-[18px] z-10 grid place-items-center rounded-[12px] border border-dashed border-[#d1d5db] bg-white">
+                            <QrCode className="h-28 w-28 text-[#fe901d]" strokeWidth={1.8} />
+                          </div>
+                          <div className="absolute left-4 right-4 top-6 z-20 h-[2px] animate-[pulse_2.2s_ease-in-out_infinite] bg-[linear-gradient(90deg,transparent,#fe901d,transparent)] shadow-[0_0_18px_#fe901d]" />
+                        </div>
+                      </SelectionCard>
+
+                      <SelectionCard active={false} className="cursor-default space-y-4 rounded-[22px] p-5">
+                        <h3 className="text-lg font-bold text-gray-900">
+                          {currentFlow === "sales" ? "Instant Revenue Engine" : "Instant Broadcast Engine"}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          QR is the fastest way to start today. You can always upgrade to the Official API later.
+                        </p>
+                        <button
+                          className="inline-flex cursor-pointer items-center gap-2 rounded-[10px] border border-[#d1d5db] bg-white px-5 py-2.5 text-sm font-semibold text-[#374151] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed"
+                          disabled={nextButtonBusy}
+                          onClick={handleQrComplete}
+                          type="button"
+                        >
+                          {nextButtonBusy ? "Saving..." : "Simulate scan complete"}
+                          {nextButtonBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </SelectionCard>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <button
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827]"
+                      onClick={() => {
+                        setShowQrFlow(false);
+                        setCurrentStep(1);
+                      }}
+                      type="button"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Back
+                    </button>
+
+                    {!showQrFlow ? (
+                      <button
+                        className="inline-flex cursor-pointer items-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed"
+                        disabled={nextButtonBusy}
+                        onClick={handleWhatsappPrimaryAction}
+                        type="button"
+                      >
+                        {nextButtonBusy
+                          ? "Saving..."
+                          : watchedValues.whatsappMode === "api"
+                            ? "Setup Business API"
+                            : "Continue with QR"}
+                        {nextButtonBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : watchedValues.whatsappMode === "api" ? (
+                          <ArrowRight className="h-4 w-4" />
                         ) : (
-                          <Card className="border-[#efe6dc] bg-[#fffdf9]">
-                            <CardContent className="p-5">
-                              <div className="flex items-center gap-2">
-                                <ShieldCheck className="h-4 w-4 text-primary" />
-                                <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#a98a66]">
-                                  API Status
-                                </p>
-                              </div>
-                              <h3 className="mt-2 text-base font-extrabold text-[#191c1d]">
-                                Official API setup will start as pending
-                              </h3>
-                              <p className="mt-2 text-sm leading-6 text-[#5f5e5e]">
-                                We’ll keep this workspace in pending API setup until business verification and KYC are complete.
-                              </p>
-                              <div className="mt-4 inline-flex rounded-full border border-[#f4d1a7] bg-[rgba(254,144,29,0.08)] px-3 py-1 text-xs font-extrabold uppercase tracking-[0.14em] text-primary">
-                                Pending approval
-                              </div>
-                            </CardContent>
-                          </Card>
+                          <QrCode className="h-4 w-4" />
                         )}
-                      </div>
+                      </button>
                     ) : null}
+                  </div>
+                </div>
+              ) : null}
 
-                    {currentStep === 5 ? (
-                      <div className="space-y-8">
-                        <section className="space-y-4">
-                          <div>
-                            <h2 className="text-base font-extrabold tracking-[-0.02em] text-[#191c1d]">
-                              A. Lead Capture Rules
-                            </h2>
-                            <p className="mt-1 text-sm text-[#5f5e5e]">
-                              Define how new conversations should be handled from the start.
-                            </p>
-                          </div>
+              {currentStep === 3 ? (
+                <div className="space-y-6">
+                  <div className="text-center space-y-3">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff1df] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.05em] text-[#c96a00]">
+                      {flowCopy.flowLabel}
+                    </span>
+                    <h1 className="text-3xl font-black text-gray-900">
+                      {flowCopy.step3Headline}
+                    </h1>
+                    <p className="mx-auto max-w-2xl text-gray-600">
+                      {flowCopy.step3Description}
+                    </p>
+                  </div>
 
-                          <div className="space-y-3">
-                            <FormField
-                              control={form.control}
-                              name="saveNewChats"
-                              render={({ field }) => (
-                                <FormItem className="flex items-center justify-between rounded-2xl border border-[#ece6de] bg-white px-4 py-4">
-                                  <div>
-                                    <FormLabel className="cursor-pointer text-sm font-semibold text-[#191c1d]">
-                                      Save new chats
-                                    </FormLabel>
-                                    <p className="mt-1 text-sm text-[#5f5e5e]">
-                                      Automatically capture every incoming lead conversation.
-                                    </p>
-                                  </div>
-                                  <FormControl>
-                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_.95fr]">
+                    <div className="space-y-6">
+                      <SectionCard className="space-y-5">
+                        <h2 className="text-base font-bold text-gray-900">
+                          {flowCopy.leadRulesTitle}
+                        </h2>
 
-                            <FormField
-                              control={form.control}
-                              name="autoTag"
-                              render={({ field }) => (
-                                <FormItem className="flex items-center justify-between rounded-2xl border border-[#ece6de] bg-white px-4 py-4">
-                                  <div>
-                                    <FormLabel className="cursor-pointer text-sm font-semibold text-[#191c1d]">
-                                      Auto-tag leads
-                                    </FormLabel>
-                                    <p className="mt-1 text-sm text-[#5f5e5e]">
-                                      Help the inbox stay organized with quick lead categorization.
-                                    </p>
-                                  </div>
-                                  <FormControl>
-                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-
-                            <FormField
-                              control={form.control}
-                              name="notificationsEnabled"
-                              render={({ field }) => (
-                                <FormItem className="flex items-center justify-between rounded-2xl border border-[#ece6de] bg-white px-4 py-4">
-                                  <div>
-                                    <FormLabel className="cursor-pointer text-sm font-semibold text-[#191c1d]">
-                                      Notifications
-                                    </FormLabel>
-                                    <p className="mt-1 text-sm text-[#5f5e5e]">
-                                      Optional alerts for new hot leads and important conversations.
-                                    </p>
-                                  </div>
-                                  <FormControl>
-                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                        </section>
-
-                        <section className="space-y-4">
-                          <div>
-                            <h2 className="text-base font-extrabold tracking-[-0.02em] text-[#191c1d]">
-                              B. AI Setup
-                            </h2>
-                            <p className="mt-1 text-sm text-[#5f5e5e]">
-                              Give the AI enough business context to respond like your team would.
-                            </p>
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="businessDescription"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>What do you sell?</FormLabel>
-                                <FormControl>
-                                  <Textarea
-                                    className="min-h-[110px]"
-                                    placeholder="Explain the offer, audience, and sales outcome you want."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="productsServices"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Products or services</FormLabel>
-                                <FormControl>
-                                  <Textarea
-                                    className="min-h-[100px]"
-                                    placeholder="List the main products, services, packages, or pricing anchors."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </section>
-
-                        <section className="space-y-4">
-                          <div>
-                            <h2 className="text-base font-extrabold tracking-[-0.02em] text-[#191c1d]">
-                              C. First AI Message
-                            </h2>
-                            <p className="mt-1 text-sm text-[#5f5e5e]">
-                              This becomes the starting reply your leads feel first.
-                            </p>
-                          </div>
-
-                          <FormField
-                            control={form.control}
-                            name="firstAiMessage"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Greeting</FormLabel>
-                                <FormControl>
-                                  <Textarea
-                                    className="min-h-[120px]"
-                                    placeholder="Hi there! Thanks for reaching out..."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <div className="rounded-2xl border border-[#efe6dc] bg-[#fffdf9] px-4 py-4">
-                            <div className="flex items-center gap-2">
-                              <Bot className="h-4 w-4 text-primary" />
-                              <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#a98a66]">
-                                AI Training
+                        <div className="border-b border-[#e5e7eb] py-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-900">
+                                {flowCopy.saveChatsLabel}
+                              </h3>
+                              <p className="mt-1 text-xs text-gray-500">
+                                {flowCopy.saveChatsDescription}
                               </p>
                             </div>
-                            <p className="mt-2 text-sm leading-6 text-[#5f5e5e]">
-                              The next milestone can trigger OpenClaw embeddings and show the live “Training your AI Sales Rep...” state. For now, we’re capturing the exact setup data this step needs.
-                            </p>
+                            <button
+                              className={cn(
+                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
+                                watchedValues.saveNewChats
+                                  ? "bg-[#fe901d]"
+                                  : "bg-[#e5e7eb]",
+                              )}
+                              onClick={() =>
+                                form.setValue(
+                                  "saveNewChats",
+                                  !watchedValues.saveNewChats,
+                                  { shouldDirty: true },
+                                )
+                              }
+                              type="button"
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
+                                  watchedValues.saveNewChats ? "left-[23px]" : "left-[3px]",
+                                )}
+                              />
+                            </button>
                           </div>
-                        </section>
-                      </div>
-                    ) : null}
-
-                    {currentStep === 6 ? (
-                      <div className="space-y-6">
-                        <div className="rounded-3xl border border-[#f4d1a7] bg-[linear-gradient(180deg,rgba(254,144,29,0.12),rgba(254,144,29,0.03))] p-5">
-                          <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#a98a66]">
-                            Completion
-                          </p>
-                          <h2 className="mt-2 text-2xl font-black tracking-[-0.04em] text-[#191c1d]">
-                            Your Revenue Engine is primed
-                          </h2>
-                          <p className="mt-3 text-sm leading-6 text-[#5f5e5e]">
-                            Everything below is the setup we’ll use to unlock the dashboard and hand the workspace over to you.
-                          </p>
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <SummaryRow label="Business" value={watchedValues.businessName || "Not set"} />
-                          <SummaryRow label="Phone" value={watchedValues.phoneNumber || "Not set"} />
-                          <SummaryRow label="Industry" value={watchedValues.industry || "Not set"} />
-                          <SummaryRow label="Country" value={watchedValues.country || "Not set"} />
-                          <SummaryRow label="Primary Goal" value={summaryValues.primaryGoal} />
-                          <SummaryRow label="Traffic Sources" value={summaryValues.trafficSources} />
-                          <SummaryRow label="WhatsApp Mode" value={summaryValues.whatsappMode} />
-                          <SummaryRow label="Lead Rules" value={summaryValues.leadRules} />
+                        <div className="border-b border-[#e5e7eb] py-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-900">
+                                Auto-tag leads
+                              </h3>
+                              <p className="mt-1 text-xs text-gray-500">
+                                Automatically classify prospects by intent and context.
+                              </p>
+                            </div>
+                            <button
+                              className={cn(
+                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
+                                watchedValues.autoTag ? "bg-[#fe901d]" : "bg-[#e5e7eb]",
+                              )}
+                              onClick={() =>
+                                form.setValue("autoTag", !watchedValues.autoTag, {
+                                  shouldDirty: true,
+                                })
+                              }
+                              type="button"
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
+                                  watchedValues.autoTag ? "left-[23px]" : "left-[3px]",
+                                )}
+                              />
+                            </button>
+                          </div>
                         </div>
 
-                        <Card className="border-[#efe6dc] bg-[#fffdf9]">
-                          <CardContent className="space-y-4 p-5">
-                            <SummaryRow
-                              label="Business Context"
-                              value={watchedValues.businessDescription || "Not set"}
-                            />
-                            <SummaryRow
-                              label="Products or Services"
-                              value={watchedValues.productsServices || "Not set"}
-                            />
-                            <SummaryRow
-                              label="First AI Message"
-                              value={watchedValues.firstAiMessage || "Not set"}
-                            />
-                          </CardContent>
-                        </Card>
-                      </div>
-                    ) : null}
+                        <div className="py-3">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-900">
+                                {flowCopy.notificationsLabel}
+                              </h3>
+                              <p className="mt-1 text-xs text-gray-500">
+                                {flowCopy.notificationsDescription}
+                              </p>
+                            </div>
+                            <button
+                              className={cn(
+                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
+                                watchedValues.notificationsEnabled
+                                  ? "bg-[#fe901d]"
+                                  : "bg-[#e5e7eb]",
+                              )}
+                              onClick={() =>
+                                form.setValue(
+                                  "notificationsEnabled",
+                                  !watchedValues.notificationsEnabled,
+                                  { shouldDirty: true },
+                                )
+                              }
+                              type="button"
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
+                                  watchedValues.notificationsEnabled
+                                    ? "left-[23px]"
+                                    : "left-[3px]",
+                                )}
+                              />
+                            </button>
+                          </div>
+                        </div>
+                      </SectionCard>
 
-                    <div className="flex flex-col gap-3 border-t border-[#f3f4f6] pt-6 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="text-sm text-[#5f5e5e]">
-                        {currentStep < 6
-                          ? `Next up: ${onboardingSteps[currentStep].title}`
-                          : "Finish onboarding to unlock the dashboard and sidebar."}
+                      <SectionCard className="space-y-5">
+                        <h2 className="text-base font-bold text-gray-900">
+                          B. AI Setup (Business Context)
+                        </h2>
+
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">
+                              {flowCopy.businessContextLabel}
+                            </label>
+                            <textarea
+                              className="min-h-[92px] w-full resize-y rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
+                              placeholder={flowCopy.businessContextPlaceholder}
+                              rows={3}
+                              {...form.register("businessDescription")}
+                            />
+                            <FieldError
+                              message={
+                                form.formState.errors.businessDescription?.message
+                              }
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-gray-700">
+                              {flowCopy.productsLabel}
+                            </label>
+                            <textarea
+                              className="min-h-[92px] w-full resize-y rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
+                              placeholder={flowCopy.productsPlaceholder}
+                              rows={3}
+                              {...form.register("productsServices")}
+                            />
+                            <FieldError
+                              message={
+                                form.formState.errors.productsServices?.message
+                              }
+                            />
+                          </div>
+                        </div>
+                      </SectionCard>
+
+                      <SectionCard className="space-y-5">
+                        <h2 className="text-base font-bold text-gray-900">
+                          C. First AI Message
+                        </h2>
+                        <div className="space-y-2">
+                          <label className="text-sm font-semibold text-gray-700">
+                            Prefilled greeting
+                          </label>
+                          <textarea
+                            className="min-h-[96px] w-full resize-y rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
+                            placeholder={flowCopy.firstMessagePlaceholder}
+                            rows={4}
+                            {...form.register("firstAiMessage")}
+                          />
+                          <p className="text-xs text-gray-500">
+                            Jennifer uses this tone as the opening message when new conversations start.
+                          </p>
+                        </div>
+                      </SectionCard>
+                    </div>
+
+                    <aside className="space-y-6">
+                      <SectionCard className="space-y-4">
+                        <h2 className="text-base font-bold text-gray-900">
+                          Engine Activation
+                        </h2>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <p className="text-sm font-bold text-gray-900">
+                            {flowCopy.assistantName}
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-gray-600">
+                            {flowCopy.assistantDescription}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-[rgba(254,144,29,0.16)] bg-[rgba(254,144,29,0.08)] p-4">
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-bold text-gray-900">
+                                Activate Jennifer (AI Auto-Reply)
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-gray-600">
+                                n8n can read this flag before replying. If turned off, Jennifer stays silent.
+                              </p>
+                            </div>
+                            <button
+                              className={cn(
+                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
+                                watchedValues.isAiActive
+                                  ? "bg-[#fe901d]"
+                                  : "bg-[#e5e7eb]",
+                              )}
+                              onClick={() =>
+                                form.setValue("isAiActive", !watchedValues.isAiActive, {
+                                  shouldDirty: true,
+                                })
+                              }
+                              type="button"
+                            >
+                              <span
+                                className={cn(
+                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
+                                  watchedValues.isAiActive ? "left-[23px]" : "left-[3px]",
+                                )}
+                              />
+                            </button>
+                          </div>
+                        </div>
+                      </SectionCard>
+                    </aside>
+                  </div>
+
+                  <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+                    <button
+                      className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827] md:w-auto"
+                      onClick={() => setCurrentStep(2)}
+                      type="button"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Back
+                    </button>
+
+                    <button
+                      className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed md:w-auto"
+                      disabled={nextButtonBusy}
+                      onClick={handleAiContinue}
+                      type="button"
+                    >
+                      {nextButtonBusy ? "Initializing..." : flowCopy.initButtonLabel}
+                      {nextButtonBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Rocket className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {currentStep === 4 ? (
+                <div className="flex justify-center py-6">
+                  <div className="w-full max-w-[580px] rounded-[32px] border border-[#e5e7eb] bg-white px-8 py-12 text-center shadow-[0_40px_100px_rgba(15,23,42,0.08)]">
+                    <div className="relative mx-auto mb-8 flex h-[88px] w-[88px] items-center justify-center rounded-full bg-[#fff1df] text-[#fe901d]">
+                      <CheckCircle2 className="h-10 w-10" strokeWidth={2.4} />
+                      <div className="absolute inset-[-8px] rounded-full border-2 border-[#fff1df] animate-ping" />
+                    </div>
+
+                    <div className="space-y-3">
+                      <h1 className="text-4xl font-black tracking-tight text-gray-900">
+                        {flowCopy.completionTitle}
+                      </h1>
+                      <p className="text-lg leading-relaxed text-gray-600">
+                        {flowCopy.completionDescription}
+                      </p>
+                    </div>
+
+                    <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
+                          Leads
+                        </p>
+                        <p className="mt-1 font-bold text-gray-900">Active</p>
                       </div>
-                      <div className="flex items-center gap-3">
-                        {currentStep > 1 ? (
-                          <Button
-                            className="cursor-pointer"
-                            onClick={() => setCurrentStep((step) => Math.max(step - 1, 1))}
-                            type="button"
-                            variant="outline"
-                          >
-                            <ChevronLeft className="mr-1 h-4 w-4" />
-                            Back
-                          </Button>
-                        ) : null}
-                        {currentStep < 6 ? (
-                          <Button
-                            className="cursor-pointer"
-                            disabled={isSavingStep}
-                            onClick={handleNext}
-                            type="button"
-                          >
-                            {isSavingStep ? "Saving..." : `Complete Step ${currentStep}`}
-                            <ChevronRight className="ml-1 h-4 w-4" />
-                          </Button>
-                        ) : (
-                          <Button
-                            className="cursor-pointer"
-                            disabled={isSavingStep}
-                            onClick={handleComplete}
-                            type="button"
-                          >
-                            {isSavingStep ? "Unlocking..." : "Unlock Dashboard"}
-                            <ChevronRight className="ml-1 h-4 w-4" />
-                          </Button>
-                        )}
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
+                          AI Rep
+                        </p>
+                        <p className="mt-1 font-bold text-gray-900">Training</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
+                          Dashboard
+                        </p>
+                        <p className="mt-1 font-bold text-gray-900">Unlocked</p>
                       </div>
                     </div>
-                  </form>
-                </Form>
-              )}
-            </CardContent>
-          </Card>
+
+                    <button
+                      className="mt-8 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-4 text-lg font-bold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed"
+                      disabled={nextButtonBusy}
+                      onClick={handleFinish}
+                      type="button"
+                    >
+                      {nextButtonBusy ? "Unlocking..." : "Enter Dashboard"}
+                      {nextButtonBusy ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <Rocket className="h-5 w-5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
+
+      {showTrainingOverlay ? (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-[rgba(255,255,255,0.96)] backdrop-blur">
+          <div className="h-[66px] w-[66px] animate-spin rounded-full border-4 border-[rgba(254,144,29,0.14)] border-t-[#fe901d]" />
+          <h2 className="text-2xl font-black text-gray-900">{flowCopy.trainingTitle}</h2>
+        </div>
+      ) : null}
     </div>
   );
 }

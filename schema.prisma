@@ -45,9 +45,19 @@ model Organization {
   country                   String?
   primaryGoal               String?
   trafficSources            String[]
+  flow                      String?         @default("sales")
   whatsappMode              String?         @default("qr")
   qrConnected               Boolean         @default(false)
   apiStatus                 String?         @default("none")
+  isAiActive                Boolean         @default(true)
+  qrCodeData                String?
+  qrSessionId               String?
+  qrStatus                  String?         @default("disconnected")
+  qrLastSeen                DateTime?
+  qrStatusCheckedAt         DateTime?
+  qrDeviceInfo              String?
+  apiPhoneNumber            String?
+  apiMessagingLimit         String?
   settings                  Json?
   businessDescription       String?
   productsServices          String?
