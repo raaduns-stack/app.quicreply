@@ -5,7 +5,6 @@ import { stripeEnvSchema } from './payment/stripe/env'
 import { lemonSqueezyEnvSchema } from './payment/lemonSqueezy/env'
 import { polarEnvSchema } from './payment/polar/env'
 import { plausibleEnvSchema, googleAnalyticsEnvSchema } from './analytics/env'
-import { whatsappEnvSchema } from './whatsapp/env'
 
 // Wasp merges this schema with its built-in env var validations and uses it
 // to validate `process.env` at server startup. Access the validated env vars
@@ -21,5 +20,4 @@ export const serverEnvValidationSchema = defineEnvValidationSchema(
     .merge(polarEnvSchema)
     .merge(plausibleEnvSchema)
     .merge(googleAnalyticsEnvSchema)
-    .merge(whatsappEnvSchema)
 )

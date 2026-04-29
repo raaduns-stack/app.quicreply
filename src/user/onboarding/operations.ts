@@ -16,7 +16,8 @@ const settingsSchema = z.object({
 });
 
 const onboardingInputSchema = z.object({
-  step: z.number().int().min(1).max(4),
+  step: z.number().int().min(1).max(6),
+  validationStep: z.number().int().min(1).max(6).optional(),
   complete: z.boolean().optional().default(false),
   flow: z.enum(onboardingFlowValues),
   businessName: z.string().trim(),
@@ -77,7 +78,9 @@ function ensureUserId(context: any) {
 }
 
 function validateStepRequirements(args: OnboardingInput) {
-  if (args.step >= 1) {
+  const validationStep = args.validationStep ?? args.step;
+
+  if (validationStep >= 1) {
     if (!args.businessName) {
       throw new HttpError(400, "Business name is required.");
     }
@@ -87,12 +90,17 @@ function validateStepRequirements(args: OnboardingInput) {
     if (!args.country) {
       throw new HttpError(400, "Country is required.");
     }
-    if (args.trafficSources.length < 1) {
-      throw new HttpError(400, "Select at least one traffic source.");
-    }
   }
 
-  if (args.step >= 4) {
+  if (validationStep >= 2 && !args.primaryGoal) {
+    throw new HttpError(400, "A revenue goal is required.");
+  }
+
+  if (validationStep >= 3 && args.trafficSources.length < 1) {
+    throw new HttpError(400, "Select at least one traffic source.");
+  }
+
+  if (validationStep >= 5) {
     if (!args.businessDescription) {
       throw new HttpError(400, "Business context is required.");
     }
@@ -181,7 +189,7 @@ export const saveOnboardingProgress = async (
   const args = ensureArgsSchemaOrThrowHttpError(onboardingInputSchema, rawArgs);
   validateStepRequirements(args);
 
-  const nextStep = args.complete ? 4 : args.step;
+  const nextStep = args.complete ? 6 : args.step;
   const nextApiStatus =
     args.whatsappMode === "api"
       ? args.apiStatus === "none"

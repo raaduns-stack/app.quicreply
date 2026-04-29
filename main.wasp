@@ -262,6 +262,11 @@ action disconnectWhatsAppQr {
   fn: import { disconnectWhatsAppQr } from "@src/whatsapp/operations",
   entities: [User, Organization]
 }
+
+action completeOfficialApiSetup {
+  fn: import { completeOfficialApiSetup } from "@src/whatsapp/operations",
+  entities: [User, Organization]
+}
 //#endregion
 
 

@@ -8,9 +8,14 @@ import Sidebar from "./Sidebar";
 interface Props {
   user: AuthUser;
   children?: ReactNode;
+  allowIncompleteOnboarding?: boolean;
 }
 
-const UserLayout: FC<Props> = ({ children, user }) => {
+const UserLayout: FC<Props> = ({
+  children,
+  user,
+  allowIncompleteOnboarding = false,
+}) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const navigate = useNavigate();
@@ -19,12 +24,12 @@ const UserLayout: FC<Props> = ({ children, user }) => {
     true;
 
   useEffect(() => {
-    if (!isOnboardingCompleted) {
+    if (!isOnboardingCompleted && !allowIncompleteOnboarding) {
       navigate(routes.OnboardingRoute.to, { replace: true });
     }
-  }, [isOnboardingCompleted, navigate]);
+  }, [allowIncompleteOnboarding, isOnboardingCompleted, navigate]);
 
-  if (!isOnboardingCompleted) {
+  if (!isOnboardingCompleted && !allowIncompleteOnboarding) {
     return null;
   }
 

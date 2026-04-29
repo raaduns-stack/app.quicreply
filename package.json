@@ -1,6 +1,9 @@
 {
   "name": "opensaas",
   "type": "module",
+  "scripts": {
+    "reset:onboarding": "node --env-file=.env.server scripts/reset-onboarding.mjs"
+  },
   "workspaces": [
     ".wasp/out/*",
     ".wasp/out/sdk/wasp"

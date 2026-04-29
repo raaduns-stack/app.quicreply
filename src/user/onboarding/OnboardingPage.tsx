@@ -3,21 +3,23 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
+  BriefcaseBusiness,
   Check,
   CheckCircle2,
   Database,
   Flag,
   Link2,
   Loader2,
-  Lightbulb,
   Megaphone,
   QrCode,
   Rocket,
   Shield,
   Sparkles,
   Store,
+  Target,
+  Waypoints,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
 import {
@@ -29,7 +31,6 @@ import { routes } from "wasp/client/router";
 import { type AuthUser } from "wasp/auth";
 import * as z from "zod";
 import { useToast } from "../../client/hooks/use-toast";
-import TextLogoLight from "../../client/static/logos/TextLogo_light.png";
 import { cn } from "../../client/utils";
 import {
   apiStatusValues,
@@ -45,7 +46,9 @@ import {
   trafficSourceValues,
   whatsappModeOptions,
   whatsappModeValues,
+  type OnboardingFlow,
 } from "./constants";
+import { OnboardingCanvas } from "./OnboardingShell";
 
 const onboardingFormSchema = z.object({
   flow: z.enum(onboardingFlowValues),
@@ -100,64 +103,136 @@ const defaultValues: OnboardingFormValues = {
 };
 
 const stepFields: Record<number, Array<keyof OnboardingFormValues>> = {
-  1: ["businessName", "industry", "country", "primaryGoal", "trafficSources"],
-  2: [],
-  3: ["businessDescription", "productsServices", "firstAiMessage"],
+  1: ["businessName", "industry", "country"],
+  2: ["primaryGoal"],
+  3: ["trafficSources"],
   4: [],
+  5: ["businessDescription", "productsServices", "firstAiMessage"],
+  6: [],
 };
 
-const progressSteps = [
-  { step: 1, icon: Store },
-  { step: 2, icon: Link2 },
-  { step: 3, icon: Bot },
-  { step: 4, icon: Flag },
-] as const;
+const stepIcons = {
+  1: Store,
+  2: Target,
+  3: Waypoints,
+  4: Link2,
+  5: Bot,
+  6: Flag,
+} as const;
 
-function StepDot({
-  icon: Icon,
-  state,
+function FieldError({ message }: { message?: string }) {
+  if (!message) {
+    return null;
+  }
+  return <p className="text-sm font-medium text-red-600">{message}</p>;
+}
+
+function SurfaceCard({
+  children,
+  className,
 }: {
-  icon: (typeof progressSteps)[number]["icon"];
-  state: "upcoming" | "active" | "done";
+  children: ReactNode;
+  className?: string;
 }) {
   return (
     <div
       className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-all",
-        state === "active" &&
-          "border-[#fe901d] bg-[#fe901d] text-white",
-        state === "done" &&
-          "border-[#fe901d] bg-[rgba(254,144,29,0.08)] text-[#fe901d]",
-        state === "upcoming" && "border-[#e5e7eb] bg-white text-[#9ca3af]",
+        "rounded-[28px] border border-[#e8e4da] bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[#121826]",
+        className,
       )}
     >
-      {state === "done" ? (
-        <Check className="h-4 w-4" strokeWidth={3} />
-      ) : (
-        <Icon className="h-4 w-4" strokeWidth={2.2} />
-      )}
+      {children}
     </div>
   );
 }
 
-function ProgressStepper({ currentStep }: { currentStep: number }) {
+function ChoiceCard({
+  active,
+  onClick,
+  children,
+  className,
+}: {
+  active: boolean;
+  onClick?: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="flex items-center px-4">
-      {progressSteps.map((item, index) => {
-        const isDone = currentStep > item.step;
-        const isActive = currentStep === item.step;
+    <button
+      className={cn(
+        "block w-full cursor-pointer rounded-[22px] border-[1.5px] bg-white p-4 text-left transition hover:-translate-y-[1px] hover:shadow-[0_14px_30px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[#111827] dark:hover:shadow-[0_14px_30px_rgba(2,6,23,0.35)]",
+        active
+          ? "border-[#fe901d] bg-[linear-gradient(180deg,rgba(254,144,29,0.08),rgba(254,144,29,0.02))] dark:bg-[linear-gradient(180deg,rgba(254,144,29,0.14),rgba(254,144,29,0.05))]"
+          : "border-[#e5e7eb]",
+        className,
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+function Toggle({
+  checked,
+  onClick,
+}: {
+  checked: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
+        checked ? "bg-[#fe901d]" : "bg-[#e5e7eb] dark:bg-slate-700",
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <span
+        className={cn(
+          "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
+          checked ? "left-[23px]" : "left-[3px]",
+        )}
+      />
+    </button>
+  );
+}
+
+function Stepper({ currentStep }: { currentStep: number }) {
+  return (
+    <div className="mx-auto flex w-full max-w-4xl items-center px-4">
+      {onboardingSteps.map((step, index) => {
+        const Icon = stepIcons[step.step as keyof typeof stepIcons];
+        const isDone = currentStep > step.step;
+        const isActive = currentStep === step.step;
 
         return (
-          <div key={item.step} className="flex flex-1 items-center">
-            <StepDot
-              icon={item.icon}
-              state={isDone ? "done" : isActive ? "active" : "upcoming"}
-            />
-            {index < progressSteps.length - 1 ? (
+          <div key={step.step} className="flex flex-1 items-center">
+            <div
+              className={cn(
+                "flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 transition",
+                isDone
+                  ? "border-[#fe901d] bg-white text-[#fe901d] dark:bg-[#0f172a]"
+                  : isActive
+                    ? "border-[#fe901d] bg-[#fe901d] text-white"
+                    : "border-[#e5e7eb] bg-white text-[#c7c7c7] dark:border-white/10 dark:bg-[#0f172a] dark:text-slate-500",
+              )}
+            >
+              {isDone ? (
+                <Check className="h-5 w-5" strokeWidth={3} />
+              ) : (
+                <Icon className="h-5 w-5" />
+              )}
+            </div>
+            {index < onboardingSteps.length - 1 ? (
               <div
                 className={cn(
                   "h-[2px] flex-1 transition-colors",
-                  currentStep > item.step ? "bg-[#fe901d]" : "bg-[#e5e7eb]",
+                  currentStep > step.step
+                    ? "bg-[#fe901d]"
+                    : "bg-[#e5e7eb] dark:bg-white/10",
                 )}
               />
             ) : null}
@@ -168,54 +243,77 @@ function ProgressStepper({ currentStep }: { currentStep: number }) {
   );
 }
 
-function SectionCard({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("rounded-[20px] border border-[#e5e7eb] bg-white p-5", className)}>
-      {children}
-    </div>
-  );
-}
+function getStepIntro(step: number, flow: OnboardingFlow) {
+  const flowCopy = onboardingFlowContent[flow];
 
-function FieldError({ message }: { message?: string }) {
-  if (!message) {
-    return null;
+  switch (step) {
+    case 1:
+      return {
+        pill: flow === "sales" ? "Sales OS Setup" : "Broadcast OS Setup",
+        title: "Business and goal setup",
+        description:
+          "We will capture your business context, revenue goal, and lead sources before training the AI sales rep.",
+      };
+    case 2:
+      return {
+        pill: flowCopy.flowLabel,
+        title: "Pick your revenue goal",
+        description:
+          "Choose the main outcome this workspace should optimize before we connect WhatsApp.",
+      };
+    case 3:
+      return {
+        pill: flowCopy.flowLabel,
+        title: "Map your traffic sources",
+        description:
+          "Tell QuicReply where conversations begin so reporting and Jennifer stay in context.",
+      };
+    case 4:
+      return {
+        pill: flowCopy.flowLabel,
+        title: "Connect your WhatsApp",
+        description:
+          "Choose how to link your number. QR is instant for speed, while API is built for heavier scaling.",
+      };
+    case 5:
+      return {
+        pill: flowCopy.flowLabel,
+        title: "AI & Lead Engine Setup",
+        description:
+          "Configure lead capture rules and train Jennifer with the context of your offer.",
+      };
+    case 6:
+      return {
+        pill: flowCopy.flowLabel,
+        title: flowCopy.completionTitle,
+        description: flowCopy.completionDescription,
+      };
+    default:
+      return {
+        pill: flowCopy.flowLabel,
+        title: onboardingSteps[0].headline,
+        description: onboardingSteps[0].description,
+      };
   }
-
-  return <p className="text-sm font-medium text-red-600">{message}</p>;
 }
 
-function SelectionCard({
-  active,
-  children,
-  className,
-  onClick,
-}: {
-  active: boolean;
-  children: ReactNode;
-  className?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "block w-full cursor-pointer rounded-[18px] border-[1.5px] bg-white p-4 text-left transition duration-200 disabled:cursor-not-allowed",
-        active
-          ? "border-[#fe901d] bg-[linear-gradient(180deg,rgba(254,144,29,0.08),rgba(254,144,29,0.03))]"
-          : "border-[#e5e7eb] hover:-translate-y-px hover:shadow-[0_10px_20px_rgba(15,23,42,0.04)]",
-        className,
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      {children}
-    </button>
-  );
+function getTopbarTitle(step: number) {
+  switch (step) {
+    case 1:
+      return "Onboarding · Business Setup";
+    case 2:
+      return "Onboarding · Revenue Goal";
+    case 3:
+      return "Onboarding · Traffic Sources";
+    case 4:
+      return "Onboarding · Connect WhatsApp";
+    case 5:
+      return "Onboarding · AI Setup";
+    case 6:
+      return "Onboarding · Completion";
+    default:
+      return "Onboarding";
+  }
 }
 
 export default function OnboardingPage({ user }: { user: AuthUser }) {
@@ -239,7 +337,10 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
   const watchedValues = form.watch();
   const currentFlow = watchedValues.flow;
   const flowCopy = onboardingFlowContent[currentFlow];
-  const stepMeta = onboardingSteps[currentStep - 1];
+  const intro = useMemo(
+    () => getStepIntro(currentStep, currentFlow),
+    [currentFlow, currentStep],
+  );
 
   useEffect(() => {
     if (isOnboardingCompleted || data?.onboardingCompleted) {
@@ -252,7 +353,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       return;
     }
 
-    const nextStep = Math.min(Math.max(data.onboardingStep || 1, 1), 4);
+    const nextStep = Math.min(Math.max(data.onboardingStep || 1, 1), 6);
     setCurrentStep(nextStep);
 
     if (!data.organization) {
@@ -262,61 +363,61 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
 
     form.reset({
       flow:
-        (data.organization.flow as OnboardingFormValues["flow"]) ||
+        (data.organization.flow as OnboardingFormValues["flow"]) ??
         defaultValues.flow,
-      businessName: data.organization.name || "",
-      phoneNumber: data.organization.phoneNumber || "",
-      industry: data.organization.industry || "",
-      country: data.organization.country || "",
+      businessName: data.organization.name ?? "",
+      phoneNumber: data.organization.phoneNumber ?? "",
+      industry: data.organization.industry ?? "",
+      country: data.organization.country ?? "",
       primaryGoal:
-        (data.organization.primaryGoal as OnboardingFormValues["primaryGoal"]) ||
+        (data.organization.primaryGoal as OnboardingFormValues["primaryGoal"]) ??
         defaultValues.primaryGoal,
       trafficSources:
         (data.organization.trafficSources.filter((source) =>
           trafficSourceValues.includes(
             source as (typeof trafficSourceValues)[number],
           ),
-        ) as OnboardingFormValues["trafficSources"]) || [],
+        ) as OnboardingFormValues["trafficSources"]) ?? [],
       whatsappMode:
-        (data.organization.whatsappMode as OnboardingFormValues["whatsappMode"]) ||
+        (data.organization.whatsappMode as OnboardingFormValues["whatsappMode"]) ??
         defaultValues.whatsappMode,
       qrConnected: data.organization.qrConnected ?? false,
       apiStatus:
-        (data.organization.apiStatus as OnboardingFormValues["apiStatus"]) ||
+        (data.organization.apiStatus as OnboardingFormValues["apiStatus"]) ??
         defaultValues.apiStatus,
       saveNewChats: data.organization.settings.saveNewChats,
       autoTag: data.organization.settings.autoTag,
       notificationsEnabled: data.organization.settings.notificationsEnabled,
-      businessDescription: data.organization.businessDescription || "",
-      productsServices: data.organization.productsServices || "",
+      businessDescription: data.organization.businessDescription ?? "",
+      productsServices: data.organization.productsServices ?? "",
       firstAiMessage:
         data.organization.firstAiMessage || defaultValues.firstAiMessage,
       isAiActive: data.organization.isAiActive ?? defaultValues.isAiActive,
     });
 
-    setShowQrFlow(
-      nextStep === 2 &&
-        (data.organization.whatsappMode === "qr" ||
-          data.organization.whatsappMode === null) &&
-        Boolean(data.organization.qrConnected),
-    );
+    setShowQrFlow(nextStep === 4 && Boolean(data.organization.qrConnected));
   }, [data, form]);
 
-  async function persistStep(step: number, complete = false) {
-    const values = form.getValues();
+  async function persistStep(
+    step: number,
+    complete = false,
+    validationStep = step,
+  ) {
     setIsSavingStep(true);
-
     try {
       await saveOnboardingProgress({
-        ...values,
+        ...form.getValues(),
         step,
+        validationStep,
         complete,
       });
       return true;
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: complete ? "Could not finish onboarding" : "Could not save this step",
+        title: complete
+          ? "Could not finish onboarding"
+          : "Could not save this step",
         description: err?.message || "Please try again.",
       });
       return false;
@@ -325,82 +426,68 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
     }
   }
 
-  async function handleBusinessContinue() {
-    const isValid = await form.trigger(stepFields[1], { shouldFocus: true });
+  async function saveAndGo(step: number, nextStep: number) {
+    const isValid = await form.trigger(stepFields[step], { shouldFocus: true });
     if (!isValid) {
       return;
     }
-
-    const saved = await persistStep(2, false);
+    const saved = await persistStep(nextStep, false, step);
     if (!saved) {
       return;
     }
-
-    setShowQrFlow(false);
-    setCurrentStep(2);
+    setCurrentStep(nextStep);
   }
 
   async function handleWhatsappPrimaryAction() {
     if (watchedValues.whatsappMode === "api") {
       form.setValue("apiStatus", "pending", { shouldDirty: true });
-      const saved = await persistStep(3, false);
+      const saved = await persistStep(4, false);
       if (!saved) {
         return;
       }
-      setShowQrFlow(false);
-      setCurrentStep(3);
+      navigate("/whatsapp/setup");
       return;
     }
 
     form.setValue("qrConnected", true, { shouldDirty: true });
-    const saved = await persistStep(2, false);
-    if (!saved) {
-      return;
-    }
-
     setShowQrFlow(true);
   }
 
   async function handleQrComplete() {
-    const saved = await persistStep(3, false);
+    form.setValue("qrConnected", true, { shouldDirty: true });
+    form.setValue("apiStatus", "none", { shouldDirty: true });
+    const saved = await persistStep(5, false, 4);
     if (!saved) {
       return;
     }
-
     toast({
       title: "QR connected successfully",
-      description: "Your instant revenue engine is ready to keep moving.",
+      description: "Your instant revenue engine is ready.",
     });
     setShowQrFlow(false);
-    setCurrentStep(3);
+    setCurrentStep(5);
   }
 
   async function handleAiContinue() {
-    const isValid = await form.trigger(stepFields[3], { shouldFocus: true });
+    const isValid = await form.trigger(stepFields[5], { shouldFocus: true });
     if (!isValid) {
       return;
     }
-
     setShowTrainingOverlay(true);
-
     window.setTimeout(async () => {
-      const saved = await persistStep(4, false);
+      const saved = await persistStep(6, false, 5);
       setShowTrainingOverlay(false);
-
-      if (!saved) {
-        return;
+      if (saved) {
+        setCurrentStep(6);
       }
-
-      setCurrentStep(4);
     }, 2400);
   }
 
   async function handleFinish() {
-    const saved = await persistStep(4, true);
+    const saved = await persistStep(6, true);
     if (!saved) {
       return;
     }
-
     toast({
       title: "Revenue engine primed",
       description: "Unlocking your dashboard now.",
@@ -408,922 +495,846 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
     window.location.assign(routes.UserPageRoute.to);
   }
 
-  const nextButtonBusy = isSavingStep || showTrainingOverlay;
+  const buttonBusy = isSavingStep || showTrainingOverlay;
+  const inputClass =
+    "w-full rounded-[14px] border border-[#e5e7eb] bg-[#fbfaf7] px-4 py-3 text-sm text-[#111827] placeholder:text-[#9ca3af] placeholder:opacity-100 outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_4px_rgba(254,144,29,0.12)] dark:border-white/10 dark:bg-[#0f172a] dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-[#111827]";
+  const ghostButtonClass =
+    "inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-xl px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827] dark:text-slate-300/70 dark:hover:bg-white/5 dark:hover:text-slate-100 md:w-auto";
+  const primaryButtonClass =
+    "inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[14px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_14px_28px_rgba(254,144,29,0.28)] disabled:cursor-not-allowed md:w-auto";
 
-  return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(254,144,29,0.10),transparent_28%),#fffdf8] text-[#191c1d]">
-      <div className="sticky top-0 z-30 border-b border-[#e5e7eb] bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between px-5">
-          <div className="flex items-center gap-3">
-            <img alt="QuicReply" className="h-8 w-auto" src={TextLogoLight} />
-          </div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#6b7280]">
-            {stepMeta.badge}
+  const stepHeader = (
+    <div className="space-y-6 text-center">
+      <Stepper currentStep={currentStep} />
+      <div className="space-y-3">
+        <span className="inline-flex items-center gap-2 rounded-full border border-[#ece8df] bg-white px-4 py-2 text-sm font-semibold text-[#5f5e5e] shadow-[0_10px_28px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-[#111827]/92 dark:text-slate-300 dark:shadow-[0_10px_28px_rgba(2,6,23,0.4)]">
+          <BriefcaseBusiness className="h-4 w-4 text-[#fe901d]" />
+          {intro.pill}
+        </span>
+        <h2 className="mx-auto max-w-3xl text-3xl font-black tracking-tight text-[#161d2f] dark:text-slate-50 md:text-4xl">
+          {intro.title}
+        </h2>
+        <p className="mx-auto max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+          {intro.description}
+        </p>
+      </div>
+    </div>
+  );
+
+  const renderStepOne = (
+    <SurfaceCard className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#f1efe8] pb-5 dark:border-white/10">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.32em] text-[#a58f72]">
+            Step 1 of 6
+          </p>
+          <h3 className="mt-2 text-3xl font-black text-[#161d2f] dark:text-slate-50">
+            Business Info
+          </h3>
+          <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+            Keep your business fields, just organized into cleaner steps.
           </p>
         </div>
       </div>
 
-      <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1100px] items-center justify-center px-6 py-10 pb-20">
-        <div className="w-full space-y-6">
-          <ProgressStepper currentStep={currentStep} />
-
-          {isLoading ? (
-            <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-[#e5e7eb] bg-white text-sm font-medium text-[#5f5e5e]">
-              Loading your onboarding workspace...
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#fe901d]" />
+              <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+                Choose your engine
+              </h4>
             </div>
-          ) : error ? (
-            <div className="rounded-[20px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-600">
-              We could not load your onboarding state right now. Refresh and try again.
-            </div>
-          ) : (
-            <>
-              {currentStep === 1 ? (
-                <div className="space-y-6">
-                  <div className="flex flex-wrap items-end justify-between gap-4">
-                    <div>
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff1df] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.05em] text-[#c96a00]">
-                        {flowCopy.step1Badge}
-                      </span>
-                      <h1 className="mt-3 text-3xl font-black text-gray-900">
-                        {flowCopy.step1Headline}
-                      </h1>
-                      <p className="mt-2 max-w-2xl text-gray-600">
-                        {flowCopy.step1Description}
-                      </p>
-                    </div>
-                    <div className="max-w-sm rounded-xl border border-[#e5e7eb] bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.015)]">
-                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
-                        {flowCopy.flowLabel} Active
-                      </p>
-                      <p className="mt-2 text-xs text-gray-500">
-                        `org.flow`, `org.name`, `org.primaryGoal`, `org.trafficSources`
-                      </p>
-                    </div>
-                  </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {onboardingFlowOptions.map((option) => {
+                const selected = currentFlow === option.value;
+                return (
+                  <ChoiceCard
+                    key={option.value}
+                    active={selected}
+                    onClick={() => {
+                      const previousFlow = form.getValues("flow");
+                      const previousDefault =
+                        onboardingFlowContent[previousFlow].firstMessagePlaceholder;
+                      const nextDefault =
+                        onboardingFlowContent[option.value].firstMessagePlaceholder;
 
-                  <SectionCard className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-5 w-5 text-[#fe901d]" />
-                      <h2 className="text-base font-bold text-gray-900">
-                        Choose your engine
-                      </h2>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {onboardingFlowOptions.map((option) => {
-                        const selected = currentFlow === option.value;
-                        const icon =
-                          option.value === "sales" ? (
-                            <Bot className="h-5 w-5 text-[#fe901d]" />
-                          ) : (
-                            <Megaphone className="h-5 w-5 text-[#fe901d]" />
-                          );
+                      form.setValue("flow", option.value, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
 
-                        return (
-                          <SelectionCard
-                            key={option.value}
-                            active={selected}
-                            onClick={() => {
-                              const previousFlow = form.getValues("flow");
-                              const previousDefault =
-                                onboardingFlowContent[previousFlow].firstMessagePlaceholder;
-                              const nextDefault =
-                                onboardingFlowContent[option.value].firstMessagePlaceholder;
-
-                              form.setValue("flow", option.value, {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              });
-
-                              const currentMessage = form.getValues("firstAiMessage");
-                              if (!currentMessage || currentMessage === previousDefault) {
-                                form.setValue("firstAiMessage", nextDefault, {
-                                  shouldDirty: true,
-                                });
-                              }
-                            }}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="space-y-3">
-                                <span className="inline-flex items-center gap-1 rounded-full bg-[#fff1df] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#c96a00]">
-                                  {option.eyebrow}
-                                </span>
-                                <div>
-                                  <h3 className="text-lg font-bold text-gray-900">
-                                    {option.label}
-                                  </h3>
-                                  <p className="mt-1 text-sm text-gray-600">
-                                    {option.description}
-                                  </p>
-                                </div>
-                                <ul className="space-y-1.5 text-sm text-gray-600">
-                                  {option.points.map((point) => (
-                                    <li key={point} className="flex items-center gap-2">
-                                      <CheckCircle2 className="h-4 w-4 text-[#fe901d]" />
-                                      {point}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[rgba(254,144,29,0.14)]">
-                                {icon}
-                              </div>
-                            </div>
-                          </SelectionCard>
-                        );
-                      })}
-                    </div>
-                  </SectionCard>
-
-                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_.8fr]">
-                    <div className="space-y-6">
-                      <SectionCard className="space-y-5">
-                        <div className="flex items-center gap-2">
-                          <Store className="h-5 w-5 text-[#fe901d]" />
-                          <h2 className="text-base font-bold text-gray-900">
-                            A. Business Info
-                          </h2>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-700">
-                              Business Name
-                            </label>
-                            <input
-                              className="w-full rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
-                              placeholder="Acme Growth Studio"
-                              {...form.register("businessName")}
-                            />
-                            <FieldError
-                              message={form.formState.errors.businessName?.message}
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-700">
-                              Industry
-                            </label>
-                            <select
-                              className="w-full cursor-pointer rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
-                              {...form.register("industry")}
-                            >
-                              <option value="">Select industry</option>
-                              {industryOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <FieldError
-                              message={form.formState.errors.industry?.message}
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-700">
-                              Country
-                            </label>
-                            <select
-                              className="w-full cursor-pointer rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
-                              {...form.register("country")}
-                            >
-                              <option value="">Select country</option>
-                              {countryOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                            <FieldError
-                              message={form.formState.errors.country?.message}
-                            />
-                          </div>
-                        </div>
-                      </SectionCard>
-
-                      <SectionCard className="space-y-5">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-5 w-5 text-[#fe901d]" />
-                          <h2 className="text-base font-bold text-gray-900">
-                            B. Revenue Goal
-                          </h2>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {primaryGoalOptions.map((option) => {
-                            const selected = watchedValues.primaryGoal === option.value;
-                            return (
-                              <SelectionCard
-                                key={option.value}
-                                active={selected}
-                                onClick={() =>
-                                  form.setValue("primaryGoal", option.value, {
-                                    shouldDirty: true,
-                                    shouldValidate: true,
-                                  })
-                                }
-                              >
-                                <div className="font-semibold text-gray-900">
-                                  {option.label}
-                                </div>
-                                <p className="mt-1 text-xs text-gray-600">
-                                  {option.description}
-                                </p>
-                              </SelectionCard>
-                            );
-                          })}
-                        </div>
-                        <FieldError
-                          message={form.formState.errors.primaryGoal?.message}
-                        />
-                      </SectionCard>
-
-                      <SectionCard className="space-y-5">
-                        <div className="flex items-center gap-2">
-                          <Link2 className="h-5 w-5 text-[#fe901d]" />
-                          <h2 className="text-base font-bold text-gray-900">
-                            C. Traffic Source
-                          </h2>
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {trafficSourceOptions.map((option) => {
-                            const selected = watchedValues.trafficSources.includes(
-                              option.value,
-                            );
-                            return (
-                              <SelectionCard
-                                key={option.value}
-                                active={selected}
-                                onClick={() => {
-                                  const currentSources = form.getValues("trafficSources");
-                                  const nextSources = currentSources.includes(option.value)
-                                    ? currentSources.filter(
-                                        (value) => value !== option.value,
-                                      )
-                                    : [...currentSources, option.value];
-                                  form.setValue("trafficSources", nextSources, {
-                                    shouldDirty: true,
-                                    shouldValidate: true,
-                                  });
-                                }}
-                              >
-                                <div className="font-semibold text-gray-900">
-                                  {option.label}
-                                </div>
-                                <p className="mt-1 text-xs text-gray-600">
-                                  {option.value === "ads" &&
-                                    "Facebook, Instagram, Google, or TikTok traffic."}
-                                  {option.value === "website" &&
-                                    "Leads coming through landing pages or forms."}
-                                  {option.value === "whatsapp" &&
-                                    "Existing conversations and direct replies."}
-                                  {option.value === "other" &&
-                                    "Any other acquisition source you want to track."}
-                                </p>
-                              </SelectionCard>
-                            );
-                          })}
-                        </div>
-                        <FieldError
-                          message={form.formState.errors.trafficSources?.message}
-                        />
-                      </SectionCard>
-                    </div>
-
-                    <aside className="space-y-6">
-                      <SectionCard className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Database className="h-5 w-5 text-[#fe901d]" />
-                          <h2 className="text-base font-bold text-gray-900">
-                            Revenue OS Profile
-                          </h2>
-                        </div>
-                        <ul className="space-y-3 text-sm text-gray-600">
-                          <li className="flex gap-2">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                            <span>
-                              <strong className="text-gray-900">org.name</strong>:
-                              {" "}Business identity.
-                            </span>
-                          </li>
-                          <li className="flex gap-2">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                            <span>
-                              <strong className="text-gray-900">org.primaryGoal</strong>:
-                              {" "}Revenue outcome.
-                            </span>
-                          </li>
-                          <li className="flex gap-2">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-                            <span>
-                              <strong className="text-gray-900">org.trafficSources</strong>:
-                              {" "}Funnel entry points.
-                            </span>
-                          </li>
-                        </ul>
-                      </SectionCard>
-
-                      <SectionCard className="space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Lightbulb className="h-5 w-5 text-[#fe901d]" />
-                          <h2 className="text-base font-bold text-gray-900">
-                            Activation Tip
-                          </h2>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          {flowCopy.step1Tip}
-                        </p>
-                      </SectionCard>
-
-                      <SectionCard className="space-y-3">
-                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">
-                          DB mapping
-                        </p>
-                        <div className="rounded-2xl border border-[rgba(254,144,29,0.16)] bg-[rgba(254,144,29,0.08)] p-4 font-mono text-sm leading-6 text-gray-800">
-                          {"{"}
-                          <br />
-                          &nbsp;&nbsp;"flow": "{currentFlow}",
-                          <br />
-                          &nbsp;&nbsp;"primaryGoal": "...",
-                          <br />
-                          &nbsp;&nbsp;"trafficSources": [...]
-                          <br />
-                          {"}"}
-                        </div>
-                      </SectionCard>
-                    </aside>
-                  </div>
-
-                  <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-                    <button
-                      className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827] md:w-auto"
-                      onClick={() => navigate(routes.UserPageRoute.to)}
-                      type="button"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Back
-                    </button>
-
-                    <button
-                      className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed md:w-auto"
-                      disabled={nextButtonBusy}
-                      onClick={handleBusinessContinue}
-                      type="button"
-                    >
-                      {nextButtonBusy ? "Saving..." : "Continue to WhatsApp"}
-                      {nextButtonBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {currentStep === 2 ? (
-                <div className="space-y-6">
-                  <div className="text-center space-y-3">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff1df] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.05em] text-[#c96a00]">
-                      {flowCopy.step2Badge}
-                    </span>
-                    <h1 className="text-3xl font-black text-gray-900">
-                      Connect your WhatsApp
-                    </h1>
-                    <p className="mx-auto max-w-2xl text-gray-600">
-                      {flowCopy.step2Description}
-                    </p>
-                  </div>
-
-                  {!showQrFlow ? (
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                      {whatsappModeOptions.map((option) => {
-                        const selected = watchedValues.whatsappMode === option.value;
-                        return (
-                          <SelectionCard
-                            key={option.value}
-                            active={selected}
-                            className="h-full rounded-[22px] p-5"
-                            onClick={() => {
-                              form.setValue("whatsappMode", option.value, {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              });
-                              form.setValue(
-                                "apiStatus",
-                                option.value === "api" ? "pending" : "none",
-                                { shouldDirty: true },
-                              );
-                              if (option.value !== "qr") {
-                                form.setValue("qrConnected", false, {
-                                  shouldDirty: true,
-                                });
-                              }
-                            }}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="space-y-3">
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className={cn(
-                                      "rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
-                                      option.value === "qr"
-                                        ? "bg-emerald-100 text-emerald-700"
-                                        : "bg-blue-100 text-blue-700",
-                                    )}
-                                  >
-                                    {option.value === "qr" ? "Option A" : "Option B"}
-                                  </span>
-                                  {option.value === "qr" ? (
-                                    <span className="rounded-full bg-[rgba(254,144,29,0.10)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#fe901d]">
-                                      Default
-                                    </span>
-                                  ) : null}
-                                </div>
-
-                                <div>
-                                  <h2 className="text-xl font-bold text-gray-900">
-                                    {option.value === "qr"
-                                      ? "Connect instantly (Scan QR)"
-                                      : "Official WhatsApp API"}
-                                  </h2>
-                                  <p className="mt-1 text-sm text-gray-600">
-                                    {option.value === "qr"
-                                      ? "Perfect for handling high-intent leads and inbound conversations."
-                                      : "For high-volume messaging (>100 people/day). Requires Meta verification."}
-                                  </p>
-                                </div>
-
-                                <ul className="space-y-2 text-sm text-gray-600">
-                                  {option.value === "qr" ? (
-                                    <>
-                                      <li className="flex items-center gap-2">
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                        No setup required
-                                      </li>
-                                      <li className="flex items-center gap-2">
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                        Instant connection
-                                      </li>
-                                      <li className="flex items-center gap-2">
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                        Daily limit: ~100 msgs
-                                      </li>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <li className="flex items-center gap-2">
-                                        <CheckCircle2 className="h-4 w-4 text-blue-500" />
-                                        Business verification flow
-                                      </li>
-                                      <li className="flex items-center gap-2">
-                                        <CheckCircle2 className="h-4 w-4 text-blue-500" />
-                                        Unlimited messages & templates
-                                      </li>
-                                    </>
-                                  )}
-                                </ul>
-                              </div>
-
-                              <div
-                                className={cn(
-                                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
-                                  option.value === "qr"
-                                    ? "bg-[rgba(254,144,29,0.14)]"
-                                    : "bg-blue-100",
-                                )}
-                              >
-                                {option.value === "qr" ? (
-                                  <QrCode className="h-6 w-6 text-[#fe901d]" />
-                                ) : (
-                                  <Shield className="h-6 w-6 text-blue-600" />
-                                )}
-                              </div>
-                            </div>
-                          </SelectionCard>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_.9fr]">
-                      <SelectionCard active className="cursor-default space-y-5 rounded-[22px] p-5">
-                        <div>
-                          <p className="text-xs font-bold uppercase tracking-[0.3em] text-gray-500">
-                            Scanning now
-                          </p>
-                          <h2 className="mt-1 text-2xl font-black text-gray-900">
-                            {currentFlow === "sales" ? "Scan for Sales OS" : "Scan for Broadcast OS"}
-                          </h2>
-                          <p className="mt-1 text-sm text-gray-600">
-                            Open WhatsApp {">"} Linked Devices {">"} Link a Device.
-                          </p>
-                        </div>
-
-                        <div className="relative mx-auto h-[240px] w-[240px] overflow-hidden rounded-[20px] border border-[#e5e7eb] bg-white">
-                          <div className="absolute inset-[14px] rounded-[14px] bg-[linear-gradient(135deg,#f8fafc,#ffffff)] opacity-90" />
-                          <div className="absolute inset-[18px] z-10 grid place-items-center rounded-[12px] border border-dashed border-[#d1d5db] bg-white">
-                            <QrCode className="h-28 w-28 text-[#fe901d]" strokeWidth={1.8} />
-                          </div>
-                          <div className="absolute left-4 right-4 top-6 z-20 h-[2px] animate-[pulse_2.2s_ease-in-out_infinite] bg-[linear-gradient(90deg,transparent,#fe901d,transparent)] shadow-[0_0_18px_#fe901d]" />
-                        </div>
-                      </SelectionCard>
-
-                      <SelectionCard active={false} className="cursor-default space-y-4 rounded-[22px] p-5">
-                        <h3 className="text-lg font-bold text-gray-900">
-                          {currentFlow === "sales" ? "Instant Revenue Engine" : "Instant Broadcast Engine"}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          QR is the fastest way to start today. You can always upgrade to the Official API later.
-                        </p>
-                        <button
-                          className="inline-flex cursor-pointer items-center gap-2 rounded-[10px] border border-[#d1d5db] bg-white px-5 py-2.5 text-sm font-semibold text-[#374151] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed"
-                          disabled={nextButtonBusy}
-                          onClick={handleQrComplete}
-                          type="button"
-                        >
-                          {nextButtonBusy ? "Saving..." : "Simulate scan complete"}
-                          {nextButtonBusy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="h-4 w-4" />
+                      const currentMessage = form.getValues("firstAiMessage");
+                      if (!currentMessage || currentMessage === previousDefault) {
+                        form.setValue("firstAiMessage", nextDefault, {
+                          shouldDirty: true,
+                        });
+                      }
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-3">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]",
+                            option.value === "sales"
+                              ? "bg-[#fff1df] text-[#c96a00]"
+                              : "bg-[#e7f0ff] text-[#315fcb]",
                           )}
-                        </button>
-                      </SelectionCard>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between gap-3 pt-2">
-                    <button
-                      className="inline-flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827]"
-                      onClick={() => {
-                        setShowQrFlow(false);
-                        setCurrentStep(1);
-                      }}
-                      type="button"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Back
-                    </button>
-
-                    {!showQrFlow ? (
-                      <button
-                        className="inline-flex cursor-pointer items-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed"
-                        disabled={nextButtonBusy}
-                        onClick={handleWhatsappPrimaryAction}
-                        type="button"
-                      >
-                        {nextButtonBusy
-                          ? "Saving..."
-                          : watchedValues.whatsappMode === "api"
-                            ? "Setup Business API"
-                            : "Continue with QR"}
-                        {nextButtonBusy ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : watchedValues.whatsappMode === "api" ? (
-                          <ArrowRight className="h-4 w-4" />
-                        ) : (
-                          <QrCode className="h-4 w-4" />
+                        >
+                          {option.eyebrow}
+                        </span>
+                        <div>
+                          <h3 className="text-lg font-bold text-[#161d2f] dark:text-slate-100">
+                            {option.label}
+                          </h3>
+                          <p className="mt-1 text-sm text-[#6b7280] dark:text-slate-300/75">
+                            {option.description}
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
+                          option.value === "sales"
+                            ? "bg-[rgba(254,144,29,0.14)] text-[#fe901d]"
+                            : "bg-[#e7f0ff] text-[#315fcb]",
                         )}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {currentStep === 3 ? (
-                <div className="space-y-6">
-                  <div className="text-center space-y-3">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff1df] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.05em] text-[#c96a00]">
-                      {flowCopy.flowLabel}
-                    </span>
-                    <h1 className="text-3xl font-black text-gray-900">
-                      {flowCopy.step3Headline}
-                    </h1>
-                    <p className="mx-auto max-w-2xl text-gray-600">
-                      {flowCopy.step3Description}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_.95fr]">
-                    <div className="space-y-6">
-                      <SectionCard className="space-y-5">
-                        <h2 className="text-base font-bold text-gray-900">
-                          {flowCopy.leadRulesTitle}
-                        </h2>
-
-                        <div className="border-b border-[#e5e7eb] py-3">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <h3 className="text-sm font-semibold text-gray-900">
-                                {flowCopy.saveChatsLabel}
-                              </h3>
-                              <p className="mt-1 text-xs text-gray-500">
-                                {flowCopy.saveChatsDescription}
-                              </p>
-                            </div>
-                            <button
-                              className={cn(
-                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
-                                watchedValues.saveNewChats
-                                  ? "bg-[#fe901d]"
-                                  : "bg-[#e5e7eb]",
-                              )}
-                              onClick={() =>
-                                form.setValue(
-                                  "saveNewChats",
-                                  !watchedValues.saveNewChats,
-                                  { shouldDirty: true },
-                                )
-                              }
-                              type="button"
-                            >
-                              <span
-                                className={cn(
-                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
-                                  watchedValues.saveNewChats ? "left-[23px]" : "left-[3px]",
-                                )}
-                              />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="border-b border-[#e5e7eb] py-3">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <h3 className="text-sm font-semibold text-gray-900">
-                                Auto-tag leads
-                              </h3>
-                              <p className="mt-1 text-xs text-gray-500">
-                                Automatically classify prospects by intent and context.
-                              </p>
-                            </div>
-                            <button
-                              className={cn(
-                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
-                                watchedValues.autoTag ? "bg-[#fe901d]" : "bg-[#e5e7eb]",
-                              )}
-                              onClick={() =>
-                                form.setValue("autoTag", !watchedValues.autoTag, {
-                                  shouldDirty: true,
-                                })
-                              }
-                              type="button"
-                            >
-                              <span
-                                className={cn(
-                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
-                                  watchedValues.autoTag ? "left-[23px]" : "left-[3px]",
-                                )}
-                              />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="py-3">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <h3 className="text-sm font-semibold text-gray-900">
-                                {flowCopy.notificationsLabel}
-                              </h3>
-                              <p className="mt-1 text-xs text-gray-500">
-                                {flowCopy.notificationsDescription}
-                              </p>
-                            </div>
-                            <button
-                              className={cn(
-                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
-                                watchedValues.notificationsEnabled
-                                  ? "bg-[#fe901d]"
-                                  : "bg-[#e5e7eb]",
-                              )}
-                              onClick={() =>
-                                form.setValue(
-                                  "notificationsEnabled",
-                                  !watchedValues.notificationsEnabled,
-                                  { shouldDirty: true },
-                                )
-                              }
-                              type="button"
-                            >
-                              <span
-                                className={cn(
-                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
-                                  watchedValues.notificationsEnabled
-                                    ? "left-[23px]"
-                                    : "left-[3px]",
-                                )}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </SectionCard>
-
-                      <SectionCard className="space-y-5">
-                        <h2 className="text-base font-bold text-gray-900">
-                          B. AI Setup (Business Context)
-                        </h2>
-
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-700">
-                              {flowCopy.businessContextLabel}
-                            </label>
-                            <textarea
-                              className="min-h-[92px] w-full resize-y rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
-                              placeholder={flowCopy.businessContextPlaceholder}
-                              rows={3}
-                              {...form.register("businessDescription")}
-                            />
-                            <FieldError
-                              message={
-                                form.formState.errors.businessDescription?.message
-                              }
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-700">
-                              {flowCopy.productsLabel}
-                            </label>
-                            <textarea
-                              className="min-h-[92px] w-full resize-y rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
-                              placeholder={flowCopy.productsPlaceholder}
-                              rows={3}
-                              {...form.register("productsServices")}
-                            />
-                            <FieldError
-                              message={
-                                form.formState.errors.productsServices?.message
-                              }
-                            />
-                          </div>
-                        </div>
-                      </SectionCard>
-
-                      <SectionCard className="space-y-5">
-                        <h2 className="text-base font-bold text-gray-900">
-                          C. First AI Message
-                        </h2>
-                        <div className="space-y-2">
-                          <label className="text-sm font-semibold text-gray-700">
-                            Prefilled greeting
-                          </label>
-                          <textarea
-                            className="min-h-[96px] w-full resize-y rounded-[10px] border border-[#e5e7eb] bg-[#f9fafb] px-3.5 py-2.5 text-sm text-[#111827] outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(254,144,29,0.12)]"
-                            placeholder={flowCopy.firstMessagePlaceholder}
-                            rows={4}
-                            {...form.register("firstAiMessage")}
-                          />
-                          <p className="text-xs text-gray-500">
-                            Jennifer uses this tone as the opening message when new conversations start.
-                          </p>
-                        </div>
-                      </SectionCard>
-                    </div>
-
-                    <aside className="space-y-6">
-                      <SectionCard className="space-y-4">
-                        <h2 className="text-base font-bold text-gray-900">
-                          Engine Activation
-                        </h2>
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-sm font-bold text-gray-900">
-                            {flowCopy.assistantName}
-                          </p>
-                          <p className="mt-2 text-xs leading-5 text-gray-600">
-                            {flowCopy.assistantDescription}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-[rgba(254,144,29,0.16)] bg-[rgba(254,144,29,0.08)] p-4">
-                          <div className="flex items-center justify-between gap-4">
-                            <div>
-                              <p className="text-sm font-bold text-gray-900">
-                                Activate Jennifer (AI Auto-Reply)
-                              </p>
-                              <p className="mt-1 text-xs leading-5 text-gray-600">
-                                n8n can read this flag before replying. If turned off, Jennifer stays silent.
-                              </p>
-                            </div>
-                            <button
-                              className={cn(
-                                "relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition",
-                                watchedValues.isAiActive
-                                  ? "bg-[#fe901d]"
-                                  : "bg-[#e5e7eb]",
-                              )}
-                              onClick={() =>
-                                form.setValue("isAiActive", !watchedValues.isAiActive, {
-                                  shouldDirty: true,
-                                })
-                              }
-                              type="button"
-                            >
-                              <span
-                                className={cn(
-                                  "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.18)] transition",
-                                  watchedValues.isAiActive ? "left-[23px]" : "left-[3px]",
-                                )}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </SectionCard>
-                    </aside>
-                  </div>
-
-                  <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-                    <button
-                      className="inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-[#6b7280] transition hover:bg-[#f3f4f6] hover:text-[#111827] md:w-auto"
-                      onClick={() => setCurrentStep(2)}
-                      type="button"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Back
-                    </button>
-
-                    <button
-                      className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-3 text-base font-semibold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed md:w-auto"
-                      disabled={nextButtonBusy}
-                      onClick={handleAiContinue}
-                      type="button"
-                    >
-                      {nextButtonBusy ? "Initializing..." : flowCopy.initButtonLabel}
-                      {nextButtonBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Rocket className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {currentStep === 4 ? (
-                <div className="flex justify-center py-6">
-                  <div className="w-full max-w-[580px] rounded-[32px] border border-[#e5e7eb] bg-white px-8 py-12 text-center shadow-[0_40px_100px_rgba(15,23,42,0.08)]">
-                    <div className="relative mx-auto mb-8 flex h-[88px] w-[88px] items-center justify-center rounded-full bg-[#fff1df] text-[#fe901d]">
-                      <CheckCircle2 className="h-10 w-10" strokeWidth={2.4} />
-                      <div className="absolute inset-[-8px] rounded-full border-2 border-[#fff1df] animate-ping" />
-                    </div>
-
-                    <div className="space-y-3">
-                      <h1 className="text-4xl font-black tracking-tight text-gray-900">
-                        {flowCopy.completionTitle}
-                      </h1>
-                      <p className="text-lg leading-relaxed text-gray-600">
-                        {flowCopy.completionDescription}
-                      </p>
-                    </div>
-
-                    <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
-                          Leads
-                        </p>
-                        <p className="mt-1 font-bold text-gray-900">Active</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
-                          AI Rep
-                        </p>
-                        <p className="mt-1 font-bold text-gray-900">Training</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-gray-500">
-                          Dashboard
-                        </p>
-                        <p className="mt-1 font-bold text-gray-900">Unlocked</p>
+                      >
+                        {option.value === "sales" ? (
+                          <Bot className="h-5 w-5" />
+                        ) : (
+                          <Megaphone className="h-5 w-5" />
+                        )}
                       </div>
                     </div>
+                  </ChoiceCard>
+                );
+              })}
+            </div>
+          </div>
 
-                    <button
-                      className="mt-8 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-[10px] bg-[linear-gradient(135deg,#fe901d,#ffb84d)] px-6 py-4 text-lg font-bold text-white transition hover:-translate-y-px hover:shadow-[0_8px_20px_rgba(254,144,29,0.3)] disabled:cursor-not-allowed"
-                      disabled={nextButtonBusy}
-                      onClick={handleFinish}
-                      type="button"
-                    >
-                      {nextButtonBusy ? "Unlocking..." : "Enter Dashboard"}
-                      {nextButtonBusy ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : (
-                        <Rocket className="h-5 w-5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </>
-          )}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                Business Name
+              </label>
+              <input
+                autoComplete="organization"
+                className={inputClass}
+                placeholder="Enter business name"
+                {...form.register("businessName")}
+              />
+              <FieldError message={form.formState.errors.businessName?.message} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                Phone Number
+              </label>
+              <input
+                autoComplete="tel"
+                className={inputClass}
+                placeholder="Enter phone number"
+                {...form.register("phoneNumber")}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                Industry
+              </label>
+              <select className={inputClass} {...form.register("industry")}>
+                <option value="">Select industry</option>
+                {industryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <FieldError message={form.formState.errors.industry?.message} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                Country
+              </label>
+              <select className={inputClass} {...form.register("country")}>
+                <option value="">Select country</option>
+                {countryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <FieldError message={form.formState.errors.country?.message} />
+            </div>
+          </div>
+        </div>
+
+        <aside className="space-y-4">
+          <SurfaceCard className="space-y-4 rounded-[22px]">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-[#fe901d]" />
+              <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+                Revenue OS Profile
+              </h4>
+            </div>
+            <ul className="space-y-3 text-sm text-[#6b7280] dark:text-slate-300/75">
+              <li className="flex gap-2">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                <span>
+                  <strong className="text-[#161d2f] dark:text-slate-100">org.name</strong>: Business identity.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                <span>
+                  <strong className="text-[#161d2f] dark:text-slate-100">org.primaryGoal</strong>: Revenue outcome.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                <span>
+                  <strong className="text-[#161d2f] dark:text-slate-100">org.trafficSources</strong>: Funnel entry points.
+                </span>
+              </li>
+            </ul>
+          </SurfaceCard>
+
+          <SurfaceCard className="rounded-[22px] bg-[#fffaf0] dark:bg-[rgba(254,144,29,0.08)]">
+            <p className="text-sm text-[#6b7280] dark:text-slate-300/75">
+              {flowCopy.step1Tip}
+            </p>
+          </SurfaceCard>
+        </aside>
+      </div>
+
+      <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+        <button className={ghostButtonClass} onClick={() => navigate("/")} type="button">
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          className={primaryButtonClass}
+          disabled={buttonBusy}
+          onClick={() => void saveAndGo(1, 2)}
+          type="button"
+        >
+          {buttonBusy ? "Saving..." : "Continue to Revenue Goal"}
+          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+        </button>
+      </div>
+    </SurfaceCard>
+  );
+
+  const renderStepTwo = (
+    <SurfaceCard className="space-y-6">
+      <div className="border-b border-[#f1efe8] pb-5 dark:border-white/10">
+        <p className="text-xs font-bold uppercase tracking-[0.32em] text-[#a58f72]">
+          Step 2 of 6
+        </p>
+        <h3 className="mt-2 text-3xl font-black text-[#161d2f] dark:text-slate-50">
+          Revenue Goal
+        </h3>
+        <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+          Pick the core outcome you want QuicReply to optimize first.
+        </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {primaryGoalOptions.map((option) => {
+          const selected = watchedValues.primaryGoal === option.value;
+          return (
+            <ChoiceCard
+              key={option.value}
+              active={selected}
+              onClick={() =>
+                form.setValue("primaryGoal", option.value, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
+            >
+              <div className="font-semibold text-[#161d2f] dark:text-slate-100">
+                {option.label}
+              </div>
+              <p className="mt-1 text-sm text-[#6b7280] dark:text-slate-300/75">
+                {option.description}
+              </p>
+            </ChoiceCard>
+          );
+        })}
+      </div>
+      <FieldError message={form.formState.errors.primaryGoal?.message} />
+
+      <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+        <button className={ghostButtonClass} onClick={() => setCurrentStep(1)} type="button">
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          className={primaryButtonClass}
+          disabled={buttonBusy}
+          onClick={() => void saveAndGo(2, 3)}
+          type="button"
+        >
+          {buttonBusy ? "Saving..." : "Continue to Traffic Sources"}
+          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+        </button>
+      </div>
+    </SurfaceCard>
+  );
+
+  const renderStepThree = (
+    <SurfaceCard className="space-y-6">
+      <div className="border-b border-[#f1efe8] pb-5 dark:border-white/10">
+        <p className="text-xs font-bold uppercase tracking-[0.32em] text-[#a58f72]">
+          Step 3 of 6
+        </p>
+        <h3 className="mt-2 text-3xl font-black text-[#161d2f] dark:text-slate-50">
+          Traffic Sources
+        </h3>
+        <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+          Select the source types that usually bring conversations into this workspace.
+        </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {trafficSourceOptions.map((option) => {
+          const selected = watchedValues.trafficSources.includes(option.value);
+          return (
+            <ChoiceCard
+              key={option.value}
+              active={selected}
+              onClick={() => {
+                const nextSources = selected
+                  ? watchedValues.trafficSources.filter(
+                      (value) => value !== option.value,
+                    )
+                  : [...watchedValues.trafficSources, option.value];
+                form.setValue("trafficSources", nextSources, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                });
+              }}
+            >
+              <div className="font-semibold text-[#161d2f] dark:text-slate-100">
+                {option.label}
+              </div>
+              <p className="mt-1 text-sm text-[#6b7280] dark:text-slate-300/75">
+                {option.value === "ads"
+                  ? "Facebook, Instagram, Google, or TikTok traffic."
+                  : option.value === "website"
+                    ? "Landing pages, forms, and website enquiries."
+                    : option.value === "whatsapp"
+                      ? "Existing conversations and direct replies."
+                      : "Any additional source you want to track."}
+              </p>
+            </ChoiceCard>
+          );
+        })}
+      </div>
+      <FieldError message={form.formState.errors.trafficSources?.message as string | undefined} />
+
+      <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+        <button className={ghostButtonClass} onClick={() => setCurrentStep(2)} type="button">
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          className={primaryButtonClass}
+          disabled={buttonBusy}
+          onClick={() => void saveAndGo(3, 4)}
+          type="button"
+        >
+          {buttonBusy ? "Saving..." : "Continue to WhatsApp"}
+          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+        </button>
+      </div>
+    </SurfaceCard>
+  );
+
+  const renderStepFour = (
+    <SurfaceCard className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#f1efe8] pb-5 dark:border-white/10">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.32em] text-[#a58f72]">
+            Step 4 of 6
+          </p>
+          <h3 className="mt-2 text-3xl font-black text-[#161d2f] dark:text-slate-50">
+            WhatsApp Connection
+          </h3>
+          <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+            Choose how to link your number. QR is highlighted as the default fast path.
+          </p>
+        </div>
+        <div className="rounded-2xl bg-[#fff8ec] px-5 py-3 text-right dark:bg-[rgba(254,144,29,0.08)]">
+          <div className="h-2 w-28 rounded-full bg-[#f0e9dd] dark:bg-white/10">
+            <div className="h-2 w-2/3 rounded-full bg-[#fe901d]" />
+          </div>
+          <p className="mt-2 text-sm font-bold uppercase tracking-[0.2em] text-[#b58b53]">
+            67% Ready
+          </p>
         </div>
       </div>
 
+      {!showQrFlow ? (
+        <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            {whatsappModeOptions.map((option) => {
+              const selected = watchedValues.whatsappMode === option.value;
+              return (
+                <ChoiceCard
+                  key={option.value}
+                  active={selected}
+                  className="p-5"
+                  onClick={() => {
+                    form.setValue("whatsappMode", option.value, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
+                    form.setValue(
+                      "apiStatus",
+                      option.value === "api" ? "pending" : "none",
+                      { shouldDirty: true },
+                    );
+                    if (option.value !== "qr") {
+                      form.setValue("qrConnected", false, { shouldDirty: true });
+                    }
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
+                            option.value === "qr"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-blue-100 text-blue-700",
+                          )}
+                        >
+                          {option.eyebrow}
+                        </span>
+                        <span className="rounded-full bg-[#fff8ec] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[#fe901d] dark:bg-[rgba(254,144,29,0.10)]">
+                          {option.badge}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="text-2xl font-black text-[#161d2f] dark:text-slate-100">
+                          {option.label}
+                        </h4>
+                        <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+                          {option.description}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-[#7b6b55] dark:text-slate-300/70">
+                        CTA: {option.cta}
+                      </p>
+                    </div>
+                    <div
+                      className={cn(
+                        "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
+                        option.value === "qr"
+                          ? "bg-[rgba(254,144,29,0.14)] text-[#fe901d]"
+                          : "bg-[#e7f0ff] text-[#315fcb]",
+                      )}
+                    >
+                      {option.value === "qr" ? (
+                        <QrCode className="h-6 w-6" />
+                      ) : (
+                        <Shield className="h-6 w-6" />
+                      )}
+                    </div>
+                  </div>
+                </ChoiceCard>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[1fr_.9fr]">
+          <ChoiceCard active className="cursor-default space-y-5 rounded-[24px] p-5">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#a58f72]">
+                Scanning now
+              </p>
+              <h4 className="mt-2 text-2xl font-black text-[#161d2f] dark:text-slate-100">
+                {currentFlow === "sales" ? "Scan for Sales OS" : "Scan for Broadcast OS"}
+              </h4>
+              <p className="mt-1 text-sm text-[#6b7280] dark:text-slate-300/75">
+                Open WhatsApp &gt; Linked Devices &gt; Link a Device.
+              </p>
+            </div>
+
+            <div className="relative mx-auto h-[240px] w-[240px] overflow-hidden rounded-[24px] border border-[#ece8df] bg-white dark:border-white/10 dark:bg-[#0f172a]">
+              <div className="absolute inset-[14px] rounded-[16px] bg-[linear-gradient(135deg,#fffaf0,#ffffff)] opacity-90 dark:bg-[linear-gradient(135deg,#111827,#0f172a)]" />
+              <div className="absolute inset-[18px] z-10 grid place-items-center rounded-[16px] border border-dashed border-[#d9d3c5] bg-white dark:border-white/15 dark:bg-[#111827]">
+                <QrCode className="h-28 w-28 text-[#fe901d]" strokeWidth={1.8} />
+              </div>
+              <div className="absolute left-4 right-4 top-6 z-20 h-[2px] animate-[pulse_2.2s_ease-in-out_infinite] bg-[linear-gradient(90deg,transparent,#fe901d,transparent)] shadow-[0_0_18px_#fe901d]" />
+            </div>
+          </ChoiceCard>
+
+          <ChoiceCard active={false} className="cursor-default space-y-4 rounded-[24px] p-5">
+            <h4 className="text-xl font-black text-[#161d2f] dark:text-slate-100">
+              {currentFlow === "sales" ? "Instant Revenue Engine" : "Instant Broadcast Engine"}
+            </h4>
+            <p className="text-sm leading-7 text-[#6b7280] dark:text-slate-300/75">
+              QR is the fastest way to start today. You can always upgrade to the Official API later.
+            </p>
+            <button
+              className="inline-flex cursor-pointer items-center gap-2 rounded-[12px] border border-[#d1d5db] bg-white px-5 py-2.5 text-sm font-semibold text-[#374151] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5"
+              disabled={buttonBusy}
+              onClick={handleQrComplete}
+              type="button"
+            >
+              {buttonBusy ? "Saving..." : "Simulate scan complete"}
+              {buttonBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+            </button>
+          </ChoiceCard>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <button
+          className={ghostButtonClass}
+          onClick={() => {
+            setShowQrFlow(false);
+            setCurrentStep(3);
+          }}
+          type="button"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+
+        {!showQrFlow ? (
+          <button
+            className={primaryButtonClass}
+            disabled={buttonBusy}
+            onClick={handleWhatsappPrimaryAction}
+            type="button"
+          >
+            {buttonBusy
+              ? "Saving..."
+              : watchedValues.whatsappMode === "api"
+                ? "Setup Business API"
+                : "Continue with QR"}
+            {buttonBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : watchedValues.whatsappMode === "api" ? (
+              <ArrowRight className="h-4 w-4" />
+            ) : (
+              <QrCode className="h-4 w-4" />
+            )}
+          </button>
+        ) : null}
+      </div>
+    </SurfaceCard>
+  );
+
+  const renderStepFive = (
+    <SurfaceCard className="space-y-6">
+      <div className="border-b border-[#f1efe8] pb-5 dark:border-white/10">
+        <p className="text-xs font-bold uppercase tracking-[0.32em] text-[#a58f72]">
+          Step 5 of 6
+        </p>
+        <h3 className="mt-2 text-3xl font-black text-[#161d2f] dark:text-slate-50">
+          AI & Lead Engine Setup
+        </h3>
+        <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
+          Configure your lead capture rules and train Jennifer with the context of your offer.
+        </p>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_.95fr]">
+        <div className="space-y-6">
+          <SurfaceCard className="space-y-5 rounded-[22px] border-[#f1efe8] dark:border-white/10">
+            <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+              A. Lead Capture Rules
+            </h4>
+            <div className="flex items-center justify-between gap-4 border-b border-[#ece8df] py-3 dark:border-white/10">
+              <div>
+                <h5 className="text-sm font-semibold text-[#161d2f] dark:text-slate-100">
+                  {flowCopy.saveChatsLabel}
+                </h5>
+                <p className="mt-1 text-xs text-[#6b7280] dark:text-slate-300/75">
+                  {flowCopy.saveChatsDescription}
+                </p>
+              </div>
+              <Toggle
+                checked={watchedValues.saveNewChats}
+                onClick={() =>
+                  form.setValue("saveNewChats", !watchedValues.saveNewChats, {
+                    shouldDirty: true,
+                  })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 border-b border-[#ece8df] py-3 dark:border-white/10">
+              <div>
+                <h5 className="text-sm font-semibold text-[#161d2f] dark:text-slate-100">
+                  Auto-tag leads
+                </h5>
+                <p className="mt-1 text-xs text-[#6b7280] dark:text-slate-300/75">
+                  Automatically tag chats based on intent and activity.
+                </p>
+              </div>
+              <Toggle
+                checked={watchedValues.autoTag}
+                onClick={() =>
+                  form.setValue("autoTag", !watchedValues.autoTag, {
+                    shouldDirty: true,
+                  })
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 pt-3">
+              <div>
+                <h5 className="text-sm font-semibold text-[#161d2f] dark:text-slate-100">
+                  {flowCopy.notificationsLabel}
+                </h5>
+                <p className="mt-1 text-xs text-[#6b7280] dark:text-slate-300/75">
+                  {flowCopy.notificationsDescription}
+                </p>
+              </div>
+              <Toggle
+                checked={watchedValues.notificationsEnabled}
+                onClick={() =>
+                  form.setValue(
+                    "notificationsEnabled",
+                    !watchedValues.notificationsEnabled,
+                    {
+                      shouldDirty: true,
+                    },
+                  )
+                }
+              />
+            </div>
+          </SurfaceCard>
+
+          <SurfaceCard className="space-y-5 rounded-[22px] border-[#f1efe8] dark:border-white/10">
+            <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+              B. AI Setup (Business Context)
+            </h4>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                  {flowCopy.businessContextLabel}
+                </label>
+                <textarea
+                  className={inputClass + " min-h-[96px] resize-y"}
+                  placeholder={flowCopy.businessContextPlaceholder}
+                  rows={3}
+                  {...form.register("businessDescription")}
+                />
+                <FieldError message={form.formState.errors.businessDescription?.message} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                  {flowCopy.productsLabel}
+                </label>
+                <textarea
+                  className={inputClass + " min-h-[96px] resize-y"}
+                  placeholder={flowCopy.productsPlaceholder}
+                  rows={3}
+                  {...form.register("productsServices")}
+                />
+                <FieldError message={form.formState.errors.productsServices?.message} />
+              </div>
+            </div>
+          </SurfaceCard>
+        </div>
+
+        <aside className="space-y-6">
+          <SurfaceCard className="space-y-5 rounded-[22px] border-[#f1efe8] dark:border-white/10">
+            <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+              C. First AI Message
+            </h4>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                Prefilled greeting
+              </label>
+              <textarea
+                className={inputClass + " min-h-[108px] resize-y"}
+                rows={4}
+                {...form.register("firstAiMessage")}
+              />
+              <p className="text-xs text-[#6b7280] dark:text-slate-300/75">
+                Jennifer uses this tone as the opening message when new conversations start.
+              </p>
+            </div>
+          </SurfaceCard>
+
+          <SurfaceCard className="space-y-4 rounded-[22px]">
+            <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+              Engine Activation
+            </h4>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#0f172a]">
+              <p className="text-sm font-bold text-[#161d2f] dark:text-slate-100">
+                {flowCopy.assistantName}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-[#6b7280] dark:text-slate-300/75">
+                {flowCopy.assistantDescription}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[rgba(254,144,29,0.16)] bg-[rgba(254,144,29,0.08)] p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold text-[#161d2f] dark:text-slate-100">
+                    Activate Jennifer (AI Auto-Reply)
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#6b7280] dark:text-slate-300/75">
+                    n8n can read this flag before replying. If turned off, Jennifer stays silent.
+                  </p>
+                </div>
+                <Toggle
+                  checked={watchedValues.isAiActive}
+                  onClick={() =>
+                    form.setValue("isAiActive", !watchedValues.isAiActive, {
+                      shouldDirty: true,
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <div className="rounded-2xl border border-[#ece8df] bg-[#fffaf0] p-4 text-sm leading-7 text-[#7b6b55] dark:border-[rgba(254,144,29,0.14)] dark:bg-[rgba(254,144,29,0.08)] dark:text-slate-300/80">
+              <div className="flex items-center gap-2 font-semibold text-[#161d2f] dark:text-slate-100">
+                <Database className="h-4 w-4 text-[#fe901d]" />
+                Saved fields
+              </div>
+              <p className="mt-2">
+                `org.settings`, `org.businessDescription`, `org.productsServices`, and `org.firstAiMessage`
+                will power Jennifer later on.
+              </p>
+            </div>
+          </SurfaceCard>
+        </aside>
+      </div>
+
+      <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+        <button className={ghostButtonClass} onClick={() => setCurrentStep(4)} type="button">
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          className={primaryButtonClass}
+          disabled={buttonBusy}
+          onClick={handleAiContinue}
+          type="button"
+        >
+          {buttonBusy ? "Initializing..." : flowCopy.initButtonLabel}
+          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
+        </button>
+      </div>
+    </SurfaceCard>
+  );
+
+  const renderStepSix = (
+    <SurfaceCard className="mx-auto max-w-[580px] space-y-8 rounded-[32px] px-8 py-12 text-center">
+      <div className="relative mx-auto mb-2 flex h-[88px] w-[88px] items-center justify-center rounded-full bg-[#fff1df] text-[#fe901d]">
+        <CheckCircle2 className="h-10 w-10" strokeWidth={2.4} />
+        <div className="absolute inset-[-8px] animate-ping rounded-full border-2 border-[#fff1df]" />
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-4xl font-black tracking-tight text-[#161d2f] dark:text-slate-50">
+          {flowCopy.completionTitle}
+        </h3>
+        <p className="text-lg leading-relaxed text-[#6b7280] dark:text-slate-300/75">
+          {flowCopy.completionDescription}
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#0f172a]">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58f72]">
+            Leads
+          </p>
+          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">Active</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#0f172a]">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58f72]">
+            AI Rep
+          </p>
+          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">Training</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#0f172a]">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58f72]">
+            Dashboard
+          </p>
+          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">Unlocked</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
+        <button className={ghostButtonClass} onClick={() => setCurrentStep(5)} type="button">
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+        <button
+          className={primaryButtonClass}
+          disabled={buttonBusy}
+          onClick={handleFinish}
+          type="button"
+        >
+          {buttonBusy ? "Unlocking..." : "Enter Dashboard"}
+          {buttonBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Rocket className="h-5 w-5" />}
+        </button>
+      </div>
+    </SurfaceCard>
+  );
+
+  function renderStepContent() {
+    switch (currentStep) {
+      case 1:
+        return renderStepOne;
+      case 2:
+        return renderStepTwo;
+      case 3:
+        return renderStepThree;
+      case 4:
+        return renderStepFour;
+      case 5:
+        return renderStepFive;
+      case 6:
+        return renderStepSix;
+      default:
+        return renderStepOne;
+    }
+  }
+
+  return (
+    <OnboardingCanvas title={getTopbarTitle(currentStep)} user={user}>
+      <div className="mx-auto w-full max-w-[1240px]">
+        {isLoading ? (
+          <div className="flex min-h-[420px] items-center justify-center rounded-[28px] border border-[#e5e7eb] bg-white text-sm font-medium text-[#5f5e5e] dark:border-white/10 dark:bg-[#111827] dark:text-slate-300/75">
+            Loading your onboarding workspace...
+          </div>
+        ) : error ? (
+          <div className="rounded-[20px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-600">
+            We could not load your onboarding state right now. Refresh and try again.
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {stepHeader}
+            <div className="mx-auto w-full max-w-[980px]">{renderStepContent()}</div>
+          </div>
+        )}
+      </div>
+
       {showTrainingOverlay ? (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-[rgba(255,255,255,0.96)] backdrop-blur">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 bg-[rgba(255,255,255,0.96)] backdrop-blur dark:bg-[rgba(2,6,23,0.88)]">
           <div className="h-[66px] w-[66px] animate-spin rounded-full border-4 border-[rgba(254,144,29,0.14)] border-t-[#fe901d]" />
-          <h2 className="text-2xl font-black text-gray-900">{flowCopy.trainingTitle}</h2>
+          <h2 className="text-2xl font-black text-[#161d2f] dark:text-slate-50">
+            {flowCopy.trainingTitle}
+          </h2>
         </div>
       ) : null}
-    </div>
+    </OnboardingCanvas>
   );
 }

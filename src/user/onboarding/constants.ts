@@ -132,31 +132,47 @@ export const countryOptions = [
 export const onboardingSteps = [
   {
     step: 1,
-    badge: "Step 1 of 4",
-    title: "Business and goal setup",
-    headline: "Business and goal setup",
+    badge: "Step 1 of 6",
+    title: "Business Info",
+    headline: "Business Info",
     description:
-      "We will capture your business context, revenue goal, and lead sources before training the AI sales rep.",
+      "Set the business identity that will shape the rest of your onboarding.",
   },
   {
     step: 2,
-    badge: "Step 2 of 4",
-    title: "WhatsApp Connection",
-    headline: "Connect your WhatsApp",
+    badge: "Step 2 of 6",
+    title: "Revenue Goal",
+    headline: "Revenue Goal",
     description:
-      "Choose how to link your number. QR is instant for inbound closing, while API is built for heavy scaling.",
+      "Choose the main outcome you want QuicReply to optimize first.",
   },
   {
     step: 3,
-    badge: "Step 3 of 4",
+    badge: "Step 3 of 6",
+    title: "Traffic Sources",
+    headline: "Traffic Sources",
+    description:
+      "Tell QuicReply where leads enter so Jennifer can prioritize the right conversations.",
+  },
+  {
+    step: 4,
+    badge: "Step 4 of 6",
+    title: "WhatsApp Connection",
+    headline: "Connect your WhatsApp",
+    description:
+      "Choose the fast QR path or the advanced Official API path for scaling.",
+  },
+  {
+    step: 5,
+    badge: "Step 5 of 6",
     title: "AI + Lead Engine",
     headline: "AI & Lead Engine Setup",
     description:
       "Configure your lead capture rules and train your AI Sales Rep with the context of your offer.",
   },
   {
-    step: 4,
-    badge: "Step 4 of 4",
+    step: 6,
+    badge: "Step 6 of 6",
     title: "Completion",
     headline: "Revenue Engine Primed",
     description:
