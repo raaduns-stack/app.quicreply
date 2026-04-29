@@ -670,13 +670,13 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                 Integration notes
               </p>
               <h3 className="mt-1 text-lg font-black tracking-tight text-foreground">
-                n8n handshake
+                Mock connection flow
               </h3>
               <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-                <p>1. Start handshake calls the n8n QR webhook.</p>
-                <p>2. The returned QR image is rendered here from URL or base64.</p>
-                <p>3. While pending, the page polls status every 5 seconds.</p>
-                <p>4. Status is persisted so refreshes keep the latest connection state.</p>
+                <p>1. Generate QR starts a mock Evolution session for the workspace.</p>
+                <p>2. A placeholder QR image is rendered immediately.</p>
+                <p>3. While pending, the page polls every 5 seconds and simulates a connection.</p>
+                <p>4. The latest QR state is still persisted so refreshes stay consistent.</p>
               </div>
               <Button asChild className="mt-5 w-full" variant="outline">
                 <Link to="/whatsapp/setup">

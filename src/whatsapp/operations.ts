@@ -2,10 +2,10 @@ import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
 import {
-  getN8nWhatsAppQrStatus,
-  startN8nWhatsAppQrSession,
+  getMockWhatsAppQrStatus,
+  startMockWhatsAppQrSession,
   type WhatsAppQrStatus,
-} from "./n8n";
+} from "./mockQr";
 
 const organizationSelect = {
   id: true,
@@ -66,6 +66,10 @@ export type WhatsAppWorkspaceState = {
 
 const updateJenniferArgsSchema = z.object({
   isAiActive: z.boolean(),
+});
+
+const completeOfficialApiSetupArgsSchema = z.object({
+  apiPhoneNumber: z.string().trim().optional(),
 });
 
 function ensureUserId(context: any) {
@@ -169,26 +173,20 @@ export const startWhatsAppQrHandshake = async (
   const userId = ensureUserId(context);
   const organization = await findOrganization(userId);
 
-  const n8nResponse = await startN8nWhatsAppQrSession({
-    userId,
-    organizationId: organization?.id ?? null,
-    businessName: organization?.name ?? null,
-    flow: organization?.flow ?? "sales",
-    whatsappMode: "qr",
-  });
+  const qrResponse = await startMockWhatsAppQrSession();
 
   const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode: organization?.apiStatus === "approved" ? "both" : "qr",
-    qrConnected: n8nResponse.qrStatus === "connected",
-    qrStatus: n8nResponse.qrStatus,
-    qrCodeData: n8nResponse.qrCodeData,
-    qrSessionId: n8nResponse.sessionId,
-    qrLastSeen: n8nResponse.lastSeen,
+    qrConnected: qrResponse.qrStatus === "connected",
+    qrStatus: qrResponse.qrStatus,
+    qrCodeData: qrResponse.qrCodeData,
+    qrSessionId: qrResponse.sessionId,
+    qrLastSeen: qrResponse.lastSeen,
     qrStatusCheckedAt: new Date(),
-    qrDeviceInfo: n8nResponse.deviceInfo,
-    apiPhoneNumber: n8nResponse.apiPhoneNumber ?? organization?.apiPhoneNumber ?? undefined,
+    qrDeviceInfo: qrResponse.deviceInfo,
+    apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization?.apiPhoneNumber ?? undefined,
     apiMessagingLimit:
-      n8nResponse.apiMessagingLimit ?? organization?.apiMessagingLimit ?? undefined,
+      qrResponse.apiMessagingLimit ?? organization?.apiMessagingLimit ?? undefined,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -205,8 +203,8 @@ export const refreshWhatsAppQrStatus = async (
     return toWorkspaceState(organization);
   }
 
-  const n8nResponse = await getN8nWhatsAppQrStatus(organization.qrSessionId);
-  const nextQrStatus = n8nResponse.qrStatus;
+  const qrResponse = await getMockWhatsAppQrStatus(organization.qrSessionId);
+  const nextQrStatus = qrResponse.qrStatus;
   const isConnected = nextQrStatus === "connected";
   const isTerminalWithoutQr = nextQrStatus === "connected" || nextQrStatus === "expired";
 
@@ -217,13 +215,13 @@ export const refreshWhatsAppQrStatus = async (
         : organization.whatsappMode ?? "qr",
     qrConnected: isConnected,
     qrStatus: nextQrStatus,
-    qrCodeData: isTerminalWithoutQr ? null : n8nResponse.qrCodeData ?? organization.qrCodeData,
-    qrSessionId: n8nResponse.sessionId ?? organization.qrSessionId,
-    qrLastSeen: n8nResponse.lastSeen ?? organization.qrLastSeen,
+    qrCodeData: isTerminalWithoutQr ? null : qrResponse.qrCodeData ?? organization.qrCodeData,
+    qrSessionId: qrResponse.sessionId ?? organization.qrSessionId,
+    qrLastSeen: qrResponse.lastSeen ?? organization.qrLastSeen,
     qrStatusCheckedAt: new Date(),
-    qrDeviceInfo: n8nResponse.deviceInfo ?? organization.qrDeviceInfo,
-    apiPhoneNumber: n8nResponse.apiPhoneNumber ?? organization.apiPhoneNumber,
-    apiMessagingLimit: n8nResponse.apiMessagingLimit ?? organization.apiMessagingLimit,
+    qrDeviceInfo: qrResponse.deviceInfo ?? organization.qrDeviceInfo,
+    apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization.apiPhoneNumber,
+    apiMessagingLimit: qrResponse.apiMessagingLimit ?? organization.apiMessagingLimit,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -269,4 +267,47 @@ export const disconnectWhatsAppQr = async (
   });
 
   return toWorkspaceState(updatedOrganization);
+};
+
+export const completeOfficialApiSetup = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<{ success: true }> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    completeOfficialApiSetupArgsSchema,
+    rawArgs,
+  );
+
+  const organization = await findOrganization(userId);
+  const hasQr = organization?.qrConnected ?? false;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.organization.upsert({
+      where: { userId },
+      update: {
+        whatsappMode: hasQr ? "both" : "api",
+        apiStatus: "approved",
+        apiPhoneNumber: args.apiPhoneNumber || organization?.apiPhoneNumber || null,
+        apiMessagingLimit: organization?.apiMessagingLimit ?? "10,000 msgs/day",
+      },
+      create: {
+        userId,
+        whatsappMode: "api",
+        apiStatus: "approved",
+        apiPhoneNumber: args.apiPhoneNumber || null,
+        apiMessagingLimit: "10,000 msgs/day",
+      },
+    });
+
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        onboardingStep: 6,
+        onboardingCompleted: true,
+      },
+    });
+  });
+
+  return { success: true };
 };

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { type AuthUser } from "wasp/auth";
 import { Link, useNavigate } from "react-router";
+import { completeOfficialApiSetup } from "wasp/client/operations";
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,7 +21,6 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import UserLayout from "../user/layout/UserLayout";
 import { Card, CardContent } from "../client/components/ui/card";
 import { Button } from "../client/components/ui/button";
 import { Input } from "../client/components/ui/input";
@@ -28,6 +28,7 @@ import { Label } from "../client/components/ui/label";
 import { Progress } from "../client/components/ui/progress";
 import { useToast } from "../client/hooks/use-toast";
 import { cn } from "../client/utils";
+import { OnboardingCanvas } from "../user/onboarding/OnboardingShell";
 
 type StepId = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -50,8 +51,8 @@ const mockBusinesses: MockBusiness[] = [
 ];
 
 const mockWabas: MockWaba[] = [
-  { id: "waba_001", name: "QuicReply Support", phone: "+234 801 234 5678", status: "available" },
-  { id: "waba_002", name: "QuicReply Sales", phone: null, status: "available" },
+  { id: "waba_001", name: "Primary Business Line", phone: null, status: "available" },
+  { id: "waba_002", name: "Support Line", phone: null, status: "available" },
 ];
 
 export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
@@ -64,9 +65,9 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
   const [businessInfo, setBusinessInfo] = useState({
     legalName: "",
     registrationNumber: "",
-    email: user.email || "",
+    email: "",
     phone: "",
-    country: "Nigeria",
+    country: "",
     website: "",
     address: "",
   });
@@ -77,6 +78,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [registrationPhone, setRegistrationPhone] = useState("");
 
   const progressValue = (currentStep / 6) * 100;
 
@@ -120,6 +122,14 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
   }
 
   function handleSendOtp() {
+    if (!registrationPhone.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Phone number required",
+        description: "Enter the WhatsApp number you want to register first.",
+      });
+      return;
+    }
     setIsSaving(true);
     setTimeout(() => {
       setOtpSent(true);
@@ -151,12 +161,26 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
     }, 800);
   }
 
-  function handleFinish() {
-    toast({
-      title: "🎉 WhatsApp API is live!",
-      description: "Your workspace can now send high-volume messages.",
-    });
-    navigate("/whatsapp");
+  async function handleFinish() {
+    setIsSaving(true);
+    try {
+      await completeOfficialApiSetup({
+        apiPhoneNumber: registrationPhone.trim() || undefined,
+      });
+      toast({
+        title: "🎉 WhatsApp API is live!",
+        description: "Your workspace can now send high-volume messages.",
+      });
+      navigate("/");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not finish API setup",
+        description: error?.message || "Please try again.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   // Validation per step
@@ -185,15 +209,19 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
   })();
 
   return (
-    <UserLayout user={user}>
-      <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
-        {/* Breadcrumb */}
-        <div className="mb-4 flex items-center gap-2 text-sm">
-          <Link to="/whatsapp" className="text-muted-foreground hover:text-foreground">
-            WhatsApp
-          </Link>
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-semibold text-foreground">API Setup</span>
+    <OnboardingCanvas title="Onboarding · Official API Setup" user={user}>
+      <div className="mx-auto w-full max-w-[1180px] space-y-8">
+        <div className="space-y-3 text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-[#ece8df] bg-white px-4 py-2 text-sm font-semibold text-[#5f5e5e] shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+            <ShieldCheck className="h-4 w-4 text-[#fe901d]" />
+            Advanced WhatsApp Path
+          </span>
+          <h1 className="text-3xl font-black tracking-tight text-[#161d2f] md:text-4xl">
+            Official API Setup
+          </h1>
+          <p className="mx-auto max-w-2xl text-base leading-7 text-[#6b7280]">
+            This is the advanced branch from onboarding for businesses that need Meta verification and higher-volume messaging.
+          </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
@@ -256,9 +284,9 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
             </div>
 
             <Button asChild variant="ghost" size="sm" className="mt-6 w-full">
-              <Link to="/whatsapp">
+              <Link to="/onboarding">
                 <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                Cancel setup
+                Back to onboarding
               </Link>
             </Button>
           </div>
@@ -288,7 +316,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                       <Input
                         id="legalName"
                         className="mt-1.5"
-                        placeholder="ABC Properties Limited"
+                        placeholder="Enter legal business name"
                         value={businessInfo.legalName}
                         onChange={(e) => setBusinessInfo({ ...businessInfo, legalName: e.target.value })}
                       />
@@ -298,7 +326,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                       <Input
                         id="regNumber"
                         className="mt-1.5"
-                        placeholder="RC1234567"
+                        placeholder="Enter registration number"
                         value={businessInfo.registrationNumber}
                         onChange={(e) => setBusinessInfo({ ...businessInfo, registrationNumber: e.target.value })}
                       />
@@ -309,7 +337,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                         id="email"
                         type="email"
                         className="mt-1.5"
-                        placeholder="info@abc.com"
+                        placeholder="Enter business email"
                         value={businessInfo.email}
                         onChange={(e) => setBusinessInfo({ ...businessInfo, email: e.target.value })}
                       />
@@ -320,7 +348,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                         id="phone"
                         type="tel"
                         className="mt-1.5"
-                        placeholder="+234 801 234 5678"
+                        placeholder="Enter business phone"
                         value={businessInfo.phone}
                         onChange={(e) => setBusinessInfo({ ...businessInfo, phone: e.target.value })}
                       />
@@ -339,7 +367,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                       <Input
                         id="website"
                         className="mt-1.5"
-                        placeholder="https://abc.com"
+                        placeholder="Optional website"
                         value={businessInfo.website}
                         onChange={(e) => setBusinessInfo({ ...businessInfo, website: e.target.value })}
                       />
@@ -349,7 +377,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                       <Input
                         id="address"
                         className="mt-1.5"
-                        placeholder="123 Victoria Island, Lagos, Nigeria"
+                        placeholder="Enter business address"
                         value={businessInfo.address}
                         onChange={(e) => setBusinessInfo({ ...businessInfo, address: e.target.value })}
                       />
@@ -636,10 +664,12 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                                 ? "border-primary/50 bg-primary/5"
                                 : "border-border/60 hover:border-primary/30",
                             )}
-                            onClick={() => {
+                          onClick={() => {
                               setSelectedWabaId(waba.id);
                               setOtpSent(false);
                               setPhoneVerified(false);
+                              setOtpCode("");
+                              setRegistrationPhone(waba.phone ?? "");
                             }}
                             type="button"
                           >
@@ -674,14 +704,15 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
 
                       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
                         <Input
-                          placeholder="+234 801 234 5678"
+                          placeholder="Enter WhatsApp number"
                           type="tel"
                           disabled={otpSent}
-                          defaultValue="+234 801 234 5678"
+                          value={registrationPhone}
+                          onChange={(e) => setRegistrationPhone(e.target.value)}
                         />
                         <Button
                           onClick={handleSendOtp}
-                          disabled={otpSent || isSaving}
+                          disabled={otpSent || isSaving || !registrationPhone.trim()}
                           variant="outline"
                         >
                           {otpSent ? "Code sent" : isSaving ? "Sending..." : "Send OTP"}
@@ -693,12 +724,12 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                           <Label>Enter 6-digit code</Label>
                           <div className="mt-1.5 grid gap-3 sm:grid-cols-[1fr_auto]">
                             <Input
-                              placeholder="123456"
+                              placeholder="Enter 6-digit code"
                               maxLength={6}
                               value={otpCode}
                               onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
                             />
-                            <Button onClick={handleVerifyOtp} disabled={isSaving || otpCode.length !== 6}>
+                            <Button onClick={handleVerifyOtp} disabled={isSaving}>
                               {isSaving ? "Verifying..." : "Verify"}
                             </Button>
                           </div>
@@ -738,11 +769,11 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Business</span>
-                        <span className="font-bold text-foreground">{businessInfo.legalName || "QuicReply Enterprises"}</span>
+                        <span className="font-bold text-foreground">{businessInfo.legalName || "Not provided yet"}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">WhatsApp number</span>
-                        <span className="font-bold text-foreground">+234 801 234 5678</span>
+                        <span className="font-bold text-foreground">{registrationPhone || "Not verified yet"}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">KYC status</span>
@@ -802,6 +833,6 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
           </Card>
         </div>
       </div>
-    </UserLayout>
+    </OnboardingCanvas>
   );
 }
