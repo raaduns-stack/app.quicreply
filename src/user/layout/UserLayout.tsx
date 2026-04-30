@@ -20,8 +20,8 @@ const UserLayout: FC<Props> = ({
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const navigate = useNavigate();
   const isOnboardingCompleted =
-    (user as AuthUser & { onboardingCompleted?: boolean }).onboardingCompleted ===
-    true;
+    (user as AuthUser & { onboardingCompleted?: boolean })
+      .onboardingCompleted === true;
 
   useEffect(() => {
     if (!isOnboardingCompleted && !allowIncompleteOnboarding) {
@@ -34,16 +34,16 @@ const UserLayout: FC<Props> = ({
   }
 
   return (
-    <div className="bg-background text-foreground min-h-screen">
+    <div className="min-h-screen bg-[#f7f8fa] text-[#182235] dark:bg-[#08111f] dark:text-slate-100">
       <div className="flex h-screen overflow-hidden">
-        <Sidebar 
-          sidebarOpen={sidebarOpen} 
-          setSidebarOpen={setSidebarOpen} 
+        <Sidebar
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
           isSidebarExpanded={isSidebarExpanded}
           setIsSidebarExpanded={setIsSidebarExpanded}
           user={user}
         />
-        <div className="relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto duration-300 ease-in-out">
+        <div className="relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto bg-[#f7f8fa] duration-300 ease-in-out dark:bg-[#0b1220]">
           <Header
             sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
@@ -51,7 +51,7 @@ const UserLayout: FC<Props> = ({
             setIsSidebarExpanded={setIsSidebarExpanded}
             user={user}
           />
-          <main>
+          <main className="flex-1">
             <div className="mx-auto max-w-(--breakpoint-2xl) p-4 md:p-6 2xl:p-10">
               {children}
             </div>
