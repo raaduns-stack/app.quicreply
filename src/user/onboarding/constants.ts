@@ -70,14 +70,16 @@ export const onboardingFlowOptions: Array<{
     value: "sales",
     label: "Sales Generator",
     eyebrow: "Option A",
-    description: "The core engine for inbound lead capture, live conversations, and closing.",
+    description:
+      "The core engine for inbound lead capture, live conversations, and closing.",
     points: ["Capture leads", "Handle live chats", "Close sales faster"],
   },
   {
     value: "broadcast",
     label: "Broadcast Engine",
     eyebrow: "Option B",
-    description: "Built for outbound campaigns, re-engagement, and high-volume messaging.",
+    description:
+      "Built for outbound campaigns, re-engagement, and high-volume messaging.",
     points: ["Bulk outreach", "Re-engagement flows", "Campaign automation"],
   },
 ];
@@ -134,25 +136,25 @@ export const onboardingSteps = [
     step: 1,
     badge: "Step 1 of 6",
     title: "Business Info",
-    headline: "Business Info",
+    headline: "Tell us about your business.",
     description:
-      "Set the business identity that will shape the rest of your onboarding.",
+      "This is the identity your sales workspace will use — your brand name, contact number, industry, and location.",
   },
   {
     step: 2,
     badge: "Step 2 of 6",
     title: "Revenue Goal",
-    headline: "Revenue Goal",
+    headline: "What’s the main outcome you want?",
     description:
-      "Choose the main outcome you want QuicReply to optimize first.",
+      "Pick the single goal that best describes what you want this workspace to drive for your business.",
   },
   {
     step: 3,
     badge: "Step 3 of 6",
     title: "Traffic Sources",
-    headline: "Traffic Sources",
+    headline: "Where do your leads come from?",
     description:
-      "Tell QuicReply where leads enter so Jennifer can prioritize the right conversations.",
+      "Select every channel that sends conversations your way so QuicReply can prioritize them correctly.",
   },
   {
     step: 4,
@@ -216,7 +218,8 @@ export const onboardingFlowContent: Record<
     step1Headline: "Business and goal setup",
     step1Description:
       "We will capture your business context, revenue goal, and lead sources before training the AI sales rep.",
-    step1Tip: "Sales Generator will continue into WhatsApp connection and the AI + lead engine step.",
+    step1Tip:
+      "Sales Generator will continue into WhatsApp connection and the AI + lead engine step.",
     step2Badge: "Sales Generator",
     step2Description:
       "Choose how to link your number. QR is instant for inbound closing, while API is built for heavy scaling.",
@@ -249,7 +252,8 @@ export const onboardingFlowContent: Record<
     step1Headline: "Business and campaign setup",
     step1Description:
       "We will capture your business context, outreach goal, and traffic sources before activating your broadcast engine.",
-    step1Tip: "Broadcast Engine will continue into WhatsApp connection and the AI broadcast setup step.",
+    step1Tip:
+      "Broadcast Engine will continue into WhatsApp connection and the AI broadcast setup step.",
     step2Badge: "Broadcast Model",
     step2Description:
       "Choose how to link your number. QR starts fast for lighter outreach, while API is built for campaigns at scale.",

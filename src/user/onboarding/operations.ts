@@ -68,10 +68,7 @@ type OnboardingState = {
 
 function ensureUserId(context: any) {
   if (!context.user?.id) {
-    throw new HttpError(
-      401,
-      "Only authenticated users can access onboarding.",
-    );
+    throw new HttpError(401, "Only authenticated users can access onboarding.");
   }
 
   return context.user.id as string;
@@ -92,12 +89,16 @@ function validateStepRequirements(args: OnboardingInput) {
     }
   }
 
-  if (validationStep >= 2 && !args.primaryGoal) {
-    throw new HttpError(400, "A revenue goal is required.");
+  if (validationStep >= 2) {
+    if (!args.primaryGoal) {
+      throw new HttpError(400, "A revenue goal is required.");
+    }
   }
 
-  if (validationStep >= 3 && args.trafficSources.length < 1) {
-    throw new HttpError(400, "Select at least one traffic source.");
+  if (validationStep >= 3) {
+    if (args.trafficSources.length < 1) {
+      throw new HttpError(400, "Select at least one traffic source.");
+    }
   }
 
   if (validationStep >= 5) {
@@ -184,7 +185,11 @@ export const getOnboardingState = async (
 export const saveOnboardingProgress = async (
   rawArgs: unknown,
   context: any,
-): Promise<{ success: true; onboardingStep: number; onboardingCompleted: boolean }> => {
+): Promise<{
+  success: true;
+  onboardingStep: number;
+  onboardingCompleted: boolean;
+}> => {
   const userId = ensureUserId(context);
   const args = ensureArgsSchemaOrThrowHttpError(onboardingInputSchema, rawArgs);
   validateStepRequirements(args);

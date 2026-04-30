@@ -1,38 +1,32 @@
 import {
-  LayoutDashboard,
-  MessageSquare,
-  Users,
-  Megaphone,
-  Settings,
-  MoreHorizontal,
-  X,
-  UserCircle,
-  Sun,
-  Moon,
-  Link as LinkIcon,
-  ListChecks,
-  LogOut,
+  BarChart3,
+  Bot,
+  ChevronDown,
   ChevronLeft,
-  ChevronRight,
-  ShieldCheck,
-  CreditCard
+  CreditCard,
+  Inbox,
+  LayoutDashboard,
+  Megaphone,
+  MessageSquare,
+  Network,
+  Settings,
+  Users,
+  Workflow,
+  X,
 } from "lucide-react";
-import React, { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router";
 import { type AuthUser } from "wasp/auth";
-import { logout } from "wasp/client/auth";
 import LogoWithoutText from "../../client/static/logos/LOGOWITHOUTTEXT.png";
-import LogoWithText_Dark from "../../client/static/logos/TextLogo_dark.png";
-import LogoWithText_Light from "../../client/static/logos/TextLogo_light.png";
+import LogoWithTextDark from "../../client/static/logos/TextLogo_dark.png";
+import LogoWithTextLight from "../../client/static/logos/TextLogo_light.png";
 import { cn } from "../../client/utils";
 import useColorMode from "../../client/hooks/useColorMode";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../../client/components/ui/dropdown-menu";
+  dashboardShellBorderClassName,
+  dashboardShellHeaderBackgroundClassName,
+  dashboardShellHeaderClassName,
+} from "./layoutConstants";
 
 interface SidebarProps {
   sidebarOpen: boolean;
@@ -42,59 +36,360 @@ interface SidebarProps {
   user: AuthUser;
 }
 
-const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'WhatsApp', href: '/whatsapp', icon: MessageSquare },
-  { name: 'Contacts', href: '/contacts', icon: Users },
-  { name: 'Campaigns', href: '/campaigns', icon: Megaphone },
-  { name: 'Billing', href: '/billing', icon: CreditCard },
-  { name: 'Settings', href: '/settings', icon: Settings },
+type NavItem = {
+  name: string;
+  href?: string;
+  icon?: typeof LayoutDashboard;
+  disabled?: boolean;
+};
+
+type NavSection = {
+  label: string;
+  items: NavItem[];
+};
+
+type NavGroup = {
+  name: string;
+  icon: typeof LayoutDashboard;
+  items: NavItem[];
+};
+
+const navSections: NavSection[] = [
+  {
+    label: "Main",
+    items: [{ name: "Dashboard", href: "/", icon: LayoutDashboard }],
+  },
+  {
+    label: "Messages",
+    items: [{ name: "Inbox", icon: Inbox, disabled: true }],
+  },
+  {
+    label: "Customers",
+    items: [
+      { name: "Contacts", href: "/contacts", icon: Users },
+      { name: "Pipeline", icon: Workflow, disabled: true },
+    ],
+  },
+  {
+    label: "Growth",
+    items: [{ name: "Campaigns", href: "/campaigns", icon: Megaphone }],
+  },
 ];
 
-const Sidebar = ({ 
-  sidebarOpen, 
-  setSidebarOpen, 
-  isSidebarExpanded, 
-  setIsSidebarExpanded,
-  user
-}: SidebarProps) => {
-  const trigger = useRef<any>(null);
-  const sidebar = useRef<any>(null);
-  const location = useLocation();
-  const [colorMode, setColorMode] = useColorMode();
-  const isInLightMode = colorMode === "light";
+const navGroups: Array<NavGroup & { section: string }> = [
+  {
+    section: "Growth",
+    name: "AI / Jennifer",
+    icon: Bot,
+    items: [
+      { name: "Overview", disabled: true },
+      { name: "Setup", disabled: true },
+      { name: "Knowledge Base", disabled: true },
+      { name: "Test AI", disabled: true },
+      { name: "Settings", disabled: true },
+    ],
+  },
+  {
+    section: "Channels",
+    name: "WhatsApp",
+    icon: MessageSquare,
+    items: [
+      { name: "Overview", href: "/whatsapp" },
+      { name: "API Setup", href: "/whatsapp/setup" },
+    ],
+  },
+];
 
-  // Close on click outside (mobile)
+const trailingSections: NavSection[] = [
+  {
+    label: "Insights",
+    items: [{ name: "Analytics", icon: BarChart3, disabled: true }],
+  },
+  {
+    label: "Team",
+    items: [{ name: "Team", icon: Users, disabled: true }],
+  },
+  {
+    label: "System",
+    items: [
+      { name: "Billing", href: "/billing", icon: CreditCard },
+      { name: "Settings", href: "/settings", icon: Settings },
+    ],
+  },
+];
+
+const itemClassName =
+  "group relative flex w-full items-center gap-3 rounded-xl border-l-[3px] px-4 py-3 text-sm font-semibold transition-all duration-200";
+
+const activeItemClassName =
+  "border-l-[#fe901d] bg-[#fff3e1] text-[#c96a00] dark:bg-[rgba(254,144,29,0.14)] dark:text-[#ffb84d]";
+
+const idleItemClassName =
+  "border-l-transparent text-[#6b7280] hover:bg-[#f8f9fa] hover:text-[#182235] dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100";
+
+function SectionLabel({
+  children,
+  isSidebarExpanded,
+}: {
+  children: string;
+  isSidebarExpanded: boolean;
+}) {
+  if (!isSidebarExpanded) {
+    return (
+      <div className="mt-3 border-t border-[#ece8df] dark:border-white/10" />
+    );
+  }
+
+  return (
+    <div className="px-4 pb-1 pt-3 text-[10px] font-extrabold uppercase tracking-[0.22em] text-[#a5adba] dark:text-slate-500">
+      {children}
+    </div>
+  );
+}
+
+function SoonBadge({ isSidebarExpanded }: { isSidebarExpanded: boolean }) {
+  if (!isSidebarExpanded) {
+    return null;
+  }
+
+  return (
+    <span className="ml-auto rounded-full bg-[#fff3e1] px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#c96a00] dark:bg-[rgba(254,144,29,0.12)] dark:text-[#ffb84d]">
+      Soon
+    </span>
+  );
+}
+
+function SidebarItem({
+  item,
+  isSidebarExpanded,
+}: {
+  item: NavItem;
+  isSidebarExpanded: boolean;
+}) {
+  const Icon = item.icon;
+
+  if (item.disabled || !item.href) {
+    return (
+      <button
+        className={cn(
+          itemClassName,
+          "cursor-not-allowed border-l-transparent text-[#a5adba] opacity-75 dark:text-slate-600",
+          { "justify-center px-0": !isSidebarExpanded },
+        )}
+        disabled
+        title={!isSidebarExpanded ? `${item.name} coming soon` : undefined}
+        type="button"
+      >
+        {Icon ? (
+          <Icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.7} />
+        ) : null}
+        <span
+          className={cn("truncate transition-all", {
+            hidden: !isSidebarExpanded,
+          })}
+        >
+          {item.name}
+        </span>
+        <SoonBadge isSidebarExpanded={isSidebarExpanded} />
+      </button>
+    );
+  }
+
+  return (
+    <NavLink
+      className={({ isActive }) =>
+        cn(itemClassName, isActive ? activeItemClassName : idleItemClassName, {
+          "justify-center px-0": !isSidebarExpanded,
+        })
+      }
+      end={item.href === "/"}
+      title={!isSidebarExpanded ? item.name : undefined}
+      to={item.href}
+    >
+      {({ isActive }) => (
+        <>
+          {Icon ? (
+            <Icon
+              className={cn("h-[18px] w-[18px] shrink-0", {
+                "text-[#fe901d]": isActive,
+              })}
+              strokeWidth={1.7}
+            />
+          ) : null}
+          <span
+            className={cn("truncate transition-all", {
+              hidden: !isSidebarExpanded,
+            })}
+          >
+            {item.name}
+          </span>
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+function SidebarGroup({
+  group,
+  isSidebarExpanded,
+}: {
+  group: NavGroup;
+  isSidebarExpanded: boolean;
+}) {
+  const location = useLocation();
+  const isGroupActive = group.items.some(
+    (item) => item.href && location.pathname.startsWith(item.href),
+  );
+  const [isOpen, setIsOpen] = useState(isGroupActive);
+  const Icon = group.icon;
+
+  useEffect(() => {
+    if (isGroupActive) {
+      setIsOpen(true);
+    }
+  }, [isGroupActive]);
+
+  return (
+    <div>
+      <button
+        className={cn(
+          itemClassName,
+          isGroupActive ? activeItemClassName : idleItemClassName,
+          "cursor-pointer",
+          { "justify-center px-0": !isSidebarExpanded },
+        )}
+        onClick={() => setIsOpen((current) => !current)}
+        title={!isSidebarExpanded ? group.name : undefined}
+        type="button"
+      >
+        <Icon
+          className={cn("h-[18px] w-[18px] shrink-0", {
+            "text-[#fe901d]": isGroupActive,
+          })}
+          strokeWidth={1.7}
+        />
+        <span
+          className={cn("truncate transition-all", {
+            hidden: !isSidebarExpanded,
+          })}
+        >
+          {group.name}
+        </span>
+        <ChevronDown
+          className={cn("ml-auto h-4 w-4 text-[#a5adba] transition-transform", {
+            hidden: !isSidebarExpanded,
+            "rotate-180": isOpen,
+          })}
+          strokeWidth={1.8}
+        />
+      </button>
+
+      {isSidebarExpanded ? (
+        <div
+          className={cn(
+            "grid overflow-hidden transition-[grid-template-rows,opacity] duration-200",
+            isOpen
+              ? "grid-rows-[1fr] opacity-100"
+              : "grid-rows-[0fr] opacity-0",
+          )}
+        >
+          <div className="min-h-0">
+            <div className="mb-1 ml-7 mt-1 space-y-1 border-l border-[#ece8df] pl-3 dark:border-white/10">
+              {group.items.map((item) =>
+                item.disabled || !item.href ? (
+                  <button
+                    className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-semibold text-[#a5adba] opacity-75 dark:text-slate-600"
+                    disabled
+                    key={item.name}
+                    type="button"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#d1d5db] dark:bg-slate-700" />
+                    <span>{item.name}</span>
+                    <SoonBadge isSidebarExpanded />
+                  </button>
+                ) : (
+                  <NavLink
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors",
+                        isActive
+                          ? "bg-[#fff3e1] text-[#c96a00] dark:bg-[rgba(254,144,29,0.12)] dark:text-[#ffb84d]"
+                          : "text-[#6b7280] hover:bg-[#f8f9fa] hover:text-[#182235] dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100",
+                      )
+                    }
+                    key={item.name}
+                    to={item.href}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <span
+                          className={cn("h-1.5 w-1.5 rounded-full", {
+                            "bg-[#fe901d]": isActive,
+                            "bg-[#d1d5db] dark:bg-slate-700": !isActive,
+                          })}
+                        />
+                        <span>{item.name}</span>
+                      </>
+                    )}
+                  </NavLink>
+                ),
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const Sidebar = ({
+  sidebarOpen,
+  setSidebarOpen,
+  isSidebarExpanded,
+  setIsSidebarExpanded,
+}: SidebarProps) => {
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const sidebar = useRef<HTMLElement | null>(null);
+  const [colorMode] = useColorMode();
+  const isLightMode = colorMode === "light";
+
+  const sectionsWithGroups = useMemo(() => {
+    return navSections.map((section) => ({
+      ...section,
+      groups: navGroups.filter((group) => group.section === section.label),
+    }));
+  }, []);
+
   useEffect(() => {
     const clickHandler = ({ target }: MouseEvent) => {
       if (!sidebar.current || !trigger.current) return;
       if (
         !sidebarOpen ||
-        sidebar.current.contains(target) ||
-        trigger.current.contains(target)
-      )
+        sidebar.current.contains(target as Node) ||
+        trigger.current.contains(target as Node)
+      ) {
         return;
+      }
       setSidebarOpen(false);
     };
     document.addEventListener("click", clickHandler);
     return () => document.removeEventListener("click", clickHandler);
-  });
+  }, [setSidebarOpen, sidebarOpen]);
 
-  // Close if the esc key is pressed
   useEffect(() => {
-    const keyHandler = ({ keyCode }: KeyboardEvent) => {
-      if (!sidebarOpen || keyCode !== 27) return;
+    const keyHandler = ({ key }: KeyboardEvent) => {
+      if (!sidebarOpen || key !== "Escape") return;
       setSidebarOpen(false);
     };
     document.addEventListener("keydown", keyHandler);
     return () => document.removeEventListener("keydown", keyHandler);
-  });
+  }, [setSidebarOpen, sidebarOpen]);
 
   return (
     <aside
       ref={sidebar}
       className={cn(
-        "bg-white dark:bg-card absolute top-0 left-0 z-9999 flex h-screen flex-col overflow-y-hidden border-r border-border transition-all duration-300 ease-in-out lg:static lg:translate-x-0 w-64 shadow-xl lg:shadow-none",
+        "absolute left-0 top-0 z-9999 flex h-screen flex-col overflow-hidden border-r border-[#ece8df] bg-white shadow-xl transition-all duration-300 ease-in-out dark:border-white/10 dark:bg-[#08111f] lg:static lg:translate-x-0 lg:shadow-none",
         {
           "translate-x-0": sidebarOpen,
           "-translate-x-full": !sidebarOpen,
@@ -103,112 +398,143 @@ const Sidebar = ({
         },
       )}
     >
-      {/* <!-- SIDEBAR HEADER --> */}
-      <div className={cn("flex flex-col border-b border-border transition-all duration-300 pointer-events-none sticky top-0 bg-white/40 dark:bg-card/40 backdrop-blur-md z-20", {
-        "px-4": isSidebarExpanded,
-        "px-0": !isSidebarExpanded
-      })}>
-        <div className={cn("flex items-center gap-2.5 h-[77px] pointer-events-auto", {
-          "justify-between": isSidebarExpanded,
-          "justify-center": !isSidebarExpanded
-        })}>
-          <div className={cn("flex items-center gap-3 overflow-hidden", {
+      <div
+        className={cn(
+          dashboardShellHeaderClassName,
+          dashboardShellBorderClassName,
+          dashboardShellHeaderBackgroundClassName,
+          "sticky top-0 z-20 flex items-center border-b transition-all",
+          isSidebarExpanded ? "justify-between px-4" : "justify-center px-0",
+        )}
+      >
+        <div
+          className={cn("flex min-w-0 items-center gap-3 overflow-hidden", {
             "flex-1": isSidebarExpanded,
-            "w-full justify-center": !isSidebarExpanded
-          })}>
-            {isSidebarExpanded ? (
-              <img 
-                src={isInLightMode ? LogoWithText_Light : LogoWithText_Dark} 
-                alt="Logo with Text" 
-                className="h-7.5 w-auto object-contain shrink-0"
+            "w-full justify-center": !isSidebarExpanded,
+          })}
+        >
+          {isSidebarExpanded ? (
+            <img
+              alt="QuicReply"
+              className="h-8 w-auto shrink-0 object-contain"
+              src={isLightMode ? LogoWithTextLight : LogoWithTextDark}
+            />
+          ) : (
+            <button
+              className="flex size-10 cursor-pointer items-center justify-center rounded-xl bg-transparent transition-colors hover:bg-[#fff3e1] dark:hover:bg-white/5"
+              onClick={() => setIsSidebarExpanded(true)}
+              title="Expand sidebar"
+              type="button"
+            >
+              <img
+                alt="QuicReply"
+                className="h-6 w-6 shrink-0 object-contain"
+                src={LogoWithoutText}
               />
-            ) : (
-              <button 
-                onClick={() => setIsSidebarExpanded(true)}
-                className="flex size-10 items-center justify-center hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors cursor-pointer outline-none border-none bg-transparent"
-                title="Expand Sidebar"
-              >
-                <img 
-                  src={LogoWithoutText} 
-                  alt="Logo" 
-                  className="h-6 w-6 object-contain shrink-0"
-                />
-              </button>
-            )}
-          </div>
-
-          {isSidebarExpanded && (
-            <div className="flex items-center gap-1 shrink-0">
-              {/* Desktop Collapse Button */}
-              <button
-                onClick={() => setIsSidebarExpanded(false)}
-                className="hidden lg:flex size-8 items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 text-secondary hover:text-foreground transition-all duration-200 outline-none"
-                title="Collapse Sidebar"
-              >
-                <ChevronLeft size={18} strokeWidth={1.5} />
-              </button>
-
-              {/* Mobile Close Button */}
-              <button
-                ref={trigger}
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="block lg:hidden p-1.5 text-secondary hover:text-foreground hover:bg-gray-100 rounded-lg dark:hover:bg-white/10"
-              >
-                <X strokeWidth={1.5} size={20} />
-              </button>
-            </div>
+            </button>
           )}
         </div>
-      </div>
-      {/* <!-- SIDEBAR HEADER --> */}
 
-      <div className="no-scrollbar flex flex-col flex-1 overflow-y-auto">
-        {/* <!-- Sidebar Menu --> */}
-        <nav className="mt-4 px-3 flex-1 flex flex-col">
-          <ul className="flex flex-col gap-1">
-            {navigation.map((item) => {
-              return (
-                <li key={item.name}>
-                  <NavLink
-                    to={item.href}
-                    end
-                    className={({ isActive }) =>
-                      cn(
-                        "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                        isActive 
-                          ? "bg-primary/10 text-primary dark:bg-primary/20" 
-                          : "text-muted-foreground hover:bg-gray-50 hover:text-foreground dark:hover:bg-white/5 dark:hover:text-foreground",
-                        {
-                          "justify-center px-0": !isSidebarExpanded
-                        }
-                      )
-                    }
-                    title={!isSidebarExpanded ? item.name : ""}
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <item.icon 
-                          strokeWidth={1.5} 
-                          size={18} 
-                          className={cn("shrink-0", { "text-primary": isActive, "text-inherit": !isActive })} 
-                        />
-                        <span className={cn("whitespace-nowrap transition-all duration-300", {
-                          "opacity-0 w-0 hidden": !isSidebarExpanded,
-                          "opacity-100 w-auto ml-1": isSidebarExpanded,
-                        })}>
-                          {item.name}
-                        </span>
-                      </>
-                    )}
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        {isSidebarExpanded ? (
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden size-8 cursor-pointer items-center justify-center rounded-xl text-[#7d8798] transition-colors hover:bg-[#fff3e1] hover:text-[#c96a00] dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 lg:flex"
+              onClick={() => setIsSidebarExpanded(false)}
+              title="Collapse sidebar"
+              type="button"
+            >
+              <ChevronLeft size={18} strokeWidth={1.7} />
+            </button>
+
+            <button
+              className="block cursor-pointer rounded-xl p-1.5 text-[#7d8798] transition-colors hover:bg-[#fff3e1] hover:text-[#c96a00] dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100 lg:hidden"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              ref={trigger}
+              type="button"
+            >
+              <X strokeWidth={1.7} size={20} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
+      <nav className="no-scrollbar flex-1 overflow-y-auto px-3 py-3">
+        {sectionsWithGroups.map((section) => (
+          <div key={section.label}>
+            <SectionLabel isSidebarExpanded={isSidebarExpanded}>
+              {section.label}
+            </SectionLabel>
+            <div className="space-y-1">
+              {section.items.map((item) => (
+                <SidebarItem
+                  isSidebarExpanded={isSidebarExpanded}
+                  item={item}
+                  key={item.name}
+                />
+              ))}
+              {section.groups.map((group) => (
+                <SidebarGroup
+                  group={group}
+                  isSidebarExpanded={isSidebarExpanded}
+                  key={group.name}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
 
+        {navGroups
+          .filter(
+            (group) =>
+              !sectionsWithGroups.some((section) =>
+                section.groups.some(
+                  (sectionGroup) => sectionGroup.name === group.name,
+                ),
+              ),
+          )
+          .map((group) => (
+            <div key={group.section}>
+              <SectionLabel isSidebarExpanded={isSidebarExpanded}>
+                {group.section}
+              </SectionLabel>
+              <SidebarGroup
+                group={group}
+                isSidebarExpanded={isSidebarExpanded}
+              />
+            </div>
+          ))}
+
+        {trailingSections.map((section) => (
+          <div key={section.label}>
+            <SectionLabel isSidebarExpanded={isSidebarExpanded}>
+              {section.label}
+            </SectionLabel>
+            <div className="space-y-1">
+              {section.items.map((item) => (
+                <SidebarItem
+                  isSidebarExpanded={isSidebarExpanded}
+                  item={item}
+                  key={item.name}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {isSidebarExpanded ? (
+        <div className="border-t border-[#ece8df] p-3 dark:border-white/10">
+          <div className="rounded-2xl border border-[#f4dfc3] bg-[#fff8ee] px-3 py-3 dark:border-white/10 dark:bg-white/5">
+            <div className="flex items-center gap-2 text-[12px] font-extrabold text-[#182235] dark:text-slate-100">
+              <Network className="h-4 w-4 text-[#fe901d]" strokeWidth={1.8} />
+              Revenue Sales OS
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-[#667085] dark:text-slate-400">
+              QR first. API when you scale.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 };

@@ -1,417 +1,613 @@
-import { type AuthUser } from "wasp/auth";
+import { type ComponentType, type ReactNode } from "react";
 import { Link } from "react-router";
+import { type AuthUser } from "wasp/auth";
 import {
   ArrowRight,
-  ArrowUpRight,
   Bot,
   CheckCircle2,
-  Clock,
-  Megaphone,
+  Clock3,
+  CreditCard,
   MessageSquare,
-  Phone,
-  ShieldCheck,
+  QrCode,
+  Send,
   Sparkles,
   TrendingUp,
   Users,
   Zap,
 } from "lucide-react";
-import UserLayout from "./layout/UserLayout";
-import { Card, CardContent } from "../client/components/ui/card";
 import { Button } from "../client/components/ui/button";
+import { Card, CardContent } from "../client/components/ui/card";
 import { Progress } from "../client/components/ui/progress";
 import { cn } from "../client/utils";
+import UserLayout from "./layout/UserLayout";
 
 type StatCard = {
   label: string;
   value: string;
   delta: string;
-  deltaTone: "up" | "down" | "flat";
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  accent: string;
+  helper: string;
+  icon: ComponentType<{ className?: string; strokeWidth?: number }>;
+  tone: "orange" | "green" | "blue" | "slate";
 };
 
-const stats: StatCard[] = [
-  {
-    label: "Total Contacts",
-    value: "2,847",
-    delta: "+12.4% vs last week",
-    deltaTone: "up",
-    icon: Users,
-    accent: "from-blue-500/15 to-blue-500/5 text-blue-600",
-  },
-  {
-    label: "Campaigns Sent",
-    value: "24",
-    delta: "+3 this week",
-    deltaTone: "up",
-    icon: Megaphone,
-    accent: "from-purple-500/15 to-purple-500/5 text-purple-600",
-  },
-  {
-    label: "Messages Sent",
-    value: "18,392",
-    delta: "+8.1% vs last week",
-    deltaTone: "up",
-    icon: MessageSquare,
-    accent: "from-primary/15 to-primary/5 text-primary",
-  },
-  {
-    label: "Response Rate",
-    value: "64%",
-    delta: "+2.3% vs last week",
-    deltaTone: "up",
-    icon: TrendingUp,
-    accent: "from-emerald-500/15 to-emerald-500/5 text-emerald-600",
-  },
-];
-
 type ActivityItem = {
-  type: "lead" | "campaign" | "system";
   title: string;
   description: string;
   time: string;
+  icon: ComponentType<{ className?: string; strokeWidth?: number }>;
 };
 
-const recentActivity: ActivityItem[] = [
+const shellPanelClass =
+  "border-[#e6e0d6] bg-white text-[#182235] shadow-sm shadow-slate-200/60 dark:border-white/10 dark:bg-[#101826] dark:text-slate-100 dark:shadow-none";
+const nestedPanelClass =
+  "border-[#ece8df] bg-[#fbfaf7] dark:border-white/10 dark:bg-[#0b1324]";
+const subtleTextClass = "text-[#667085] dark:text-slate-400";
+const strongTextClass = "text-[#182235] dark:text-slate-50";
+const eyebrowClass =
+  "text-[10px] font-bold uppercase tracking-[0.2em] text-[#a98755] dark:text-[#d6a75c]";
+const brandButtonClass =
+  "bg-[#fe901d] text-white shadow-lg shadow-[#fe901d]/20 hover:bg-[#e77f14]";
+const outlineButtonClass =
+  "border-[#e6e0d6] bg-white text-[#344054] hover:bg-[#fff8ee] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-200 dark:hover:bg-white/5";
+
+const stats: StatCard[] = [
   {
-    type: "lead",
-    title: "New lead captured",
-    description: "Sarah Johnson asked about the Growth plan via WhatsApp.",
+    label: "Contacts",
+    value: "2,847",
+    delta: "+12.4%",
+    helper: "New leads and customers",
+    icon: Users,
+    tone: "orange",
+  },
+  {
+    label: "Messages",
+    value: "18.3k",
+    delta: "+8.1%",
+    helper: "WhatsApp sends this week",
+    icon: Send,
+    tone: "green",
+  },
+  {
+    label: "Replies",
+    value: "64%",
+    delta: "+2.3%",
+    helper: "Inbound response rate",
+    icon: TrendingUp,
+    tone: "blue",
+  },
+  {
+    label: "Jennifer",
+    value: "287",
+    delta: "Active",
+    helper: "AI replies today",
+    icon: Bot,
+    tone: "slate",
+  },
+];
+
+const activityItems: ActivityItem[] = [
+  {
+    title: "New WhatsApp lead captured",
+    description: "Sarah Johnson asked about pricing and delivery.",
     time: "2 min ago",
+    icon: Users,
   },
   {
-    type: "campaign",
-    title: "Campaign delivered",
-    description: "\"April promo blast\" sent to 1,284 contacts. 847 opened.",
-    time: "18 min ago",
-  },
-  {
-    type: "lead",
-    title: "AI qualified a lead",
-    description: "Mike R. tagged as hot — ready to buy, budget confirmed.",
+    title: "Jennifer qualified a hot lead",
+    description: "Budget confirmed, tagged for manual follow-up.",
     time: "42 min ago",
+    icon: Bot,
   },
   {
-    type: "system",
-    title: "QR connection refreshed",
-    description: "Your WhatsApp session was renewed automatically.",
-    time: "2 hours ago",
+    title: "QR session refreshed",
+    description: "The mock Evolution session is still connected.",
+    time: "2 hrs ago",
+    icon: QrCode,
   },
   {
-    type: "campaign",
-    title: "Scheduled campaign queued",
-    description: "\"Welcome flow\" will run tomorrow at 9:00 AM.",
-    time: "5 hours ago",
+    title: "Campaign draft created",
+    description: "Welcome offer is ready to review before sending.",
+    time: "5 hrs ago",
+    icon: Sparkles,
   },
 ];
 
 const quickActions = [
-  { label: "Launch a campaign", href: "/campaigns", icon: Megaphone },
+  { label: "Connect WhatsApp", href: "/whatsapp", icon: QrCode },
   { label: "Import contacts", href: "/contacts", icon: Users },
-  { label: "Train AI replies", href: "/settings", icon: Bot },
-  { label: "Upgrade plan", href: "/billing", icon: Sparkles },
+  { label: "Create campaign", href: "/campaigns", icon: Send },
+  { label: "Upgrade plan", href: "/billing", icon: CreditCard },
 ];
+
+const funnelStages = [
+  { label: "New", value: 42, width: "72%" },
+  { label: "Qualified", value: 28, width: "55%" },
+  { label: "Follow-up", value: 18, width: "38%" },
+  { label: "Won", value: 9, width: "24%" },
+];
+
+function getToneClasses(tone: StatCard["tone"]) {
+  if (tone === "green") {
+    return "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300";
+  }
+
+  if (tone === "blue") {
+    return "bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-300";
+  }
+
+  if (tone === "slate") {
+    return "bg-slate-500/10 text-slate-700 dark:bg-white/10 dark:text-slate-200";
+  }
+
+  return "bg-[#fff3e1] text-[#fe901d] dark:bg-[#fe901d]/15 dark:text-[#ffb84d]";
+}
+
+function StatusPill({
+  children,
+  tone = "orange",
+}: {
+  children: ReactNode;
+  tone?: "orange" | "green" | "blue" | "slate";
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.1em]",
+        tone === "green"
+          ? "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
+          : tone === "blue"
+            ? "bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-300"
+            : tone === "slate"
+              ? "bg-[#eef2f7] text-[#475467] dark:bg-white/10 dark:text-slate-300"
+              : "bg-[#fff3e1] text-[#c96a00] dark:bg-[#fe901d]/15 dark:text-[#ffb84d]",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 function StatCardView({ stat }: { stat: StatCard }) {
   const Icon = stat.icon;
-  const toneClass =
-    stat.deltaTone === "up"
-      ? "text-emerald-600"
-      : stat.deltaTone === "down"
-      ? "text-red-500"
-      : "text-muted-foreground";
+
   return (
-    <Card className="overflow-hidden border-border/60 bg-card transition hover:shadow-md">
+    <Card
+      className={cn(
+        shellPanelClass,
+        "overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md dark:hover:bg-[#121d2f]",
+      )}
+    >
       <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {stat.label}
-            </p>
-            <p className="mt-2 text-3xl font-black tracking-tight text-foreground">
+            <p className={eyebrowClass}>{stat.label}</p>
+            <p
+              className={cn(
+                "mt-2 text-2xl font-bold tracking-tight",
+                strongTextClass,
+              )}
+            >
               {stat.value}
-            </p>
-            <p className={cn("mt-2 flex items-center gap-1 text-xs font-medium", toneClass)}>
-              {stat.deltaTone === "up" ? (
-                <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.4} />
-              ) : null}
-              {stat.delta}
             </p>
           </div>
           <div
             className={cn(
-              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br",
-              stat.accent,
+              "flex h-11 w-11 items-center justify-center rounded-2xl",
+              getToneClasses(stat.tone),
             )}
           >
             <Icon className="h-5 w-5" strokeWidth={2} />
           </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className={cn("text-sm", subtleTextClass)}>{stat.helper}</p>
+          <span className="rounded-full bg-[#fff8ee] px-2.5 py-1 text-xs font-bold text-[#c96a00] dark:bg-[#fe901d]/10 dark:text-[#ffb84d]">
+            {stat.delta}
+          </span>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function ActivityIcon({ type }: { type: ActivityItem["type"] }) {
-  if (type === "lead") {
-    return (
-      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
-        <Users className="h-4 w-4" strokeWidth={2} />
-      </div>
-    );
-  }
-  if (type === "campaign") {
-    return (
-      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-500/10 text-purple-600">
-        <Megaphone className="h-4 w-4" strokeWidth={2} />
-      </div>
-    );
-  }
+function ActivityIcon({ icon: Icon }: { icon: ActivityItem["icon"] }) {
   return (
-    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
-      <Zap className="h-4 w-4" strokeWidth={2} />
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff3e1] text-[#fe901d] dark:bg-[#fe901d]/12 dark:text-[#ffb84d]">
+      <Icon className="h-4.5 w-4.5" strokeWidth={2} />
     </div>
   );
 }
 
 export default function UserDashboardPage({ user }: { user: AuthUser }) {
-  // Mock flags — will come from getWorkspaceFlags query eventually
-  const flags = {
-    plan: "starter" as "starter" | "growth" | "pro",
-    whatsappMode: "qr" as "qr" | "api",
-    apiStatus: "none" as "none" | "pending" | "approved",
-    kycStatus: "pending" as "pending" | "submitted" | "verified",
-    qrConnected: true,
-  };
-
   const displayName = user.username || user.email?.split("@")[0] || "there";
-  const isApiMode = flags.whatsappMode === "api";
 
   return (
     <UserLayout user={user}>
-      <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-10">
-        {/* Header */}
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Welcome back
-            </p>
-            <h1 className="text-3xl font-black tracking-tight text-foreground md:text-4xl">
-              Hi, {displayName} 👋
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Here's what's happening with your workspace today.
-            </p>
-          </div>
-          <Button asChild className="shrink-0">
-            <Link to="/campaigns">
-              <Megaphone className="mr-2 h-4 w-4" />
-              Launch campaign
-            </Link>
-          </Button>
-        </div>
-
-        {/* Upgrade banner — only for starter plan */}
-        {flags.plan === "starter" ? (
-          <div className="mt-6 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                  <Sparkles className="h-5 w-5" strokeWidth={2} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-foreground">
-                    You're on the Starter plan
-                  </p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    Unlock broadcast campaigns, AI automation, and the Official WhatsApp API.
-                  </p>
-                </div>
+      <div className="mx-auto w-full max-w-[1500px] px-4 py-6 md:px-8 lg:px-10">
+        <section className="relative overflow-hidden rounded-[2rem] border border-[#e6e0d6] bg-[linear-gradient(135deg,#fffaf2_0%,#ffffff_46%,#f7fbff_100%)] p-6 shadow-sm shadow-slate-200/70 dark:border-white/10 dark:bg-[linear-gradient(135deg,#121d2e_0%,#0b1324_54%,#111827_100%)] dark:shadow-none md:p-8">
+          <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-[#fe901d]/15 blur-3xl dark:bg-[#fe901d]/10" />
+          <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl">
+              <StatusPill>
+                <Zap className="h-3.5 w-3.5" strokeWidth={2.2} />
+                Revenue Sales OS
+              </StatusPill>
+              <h1
+                className={cn(
+                  "mt-5 max-w-4xl text-3xl font-bold tracking-tight md:text-4xl",
+                  strongTextClass,
+                )}
+              >
+                Welcome back, {displayName}
+              </h1>
+              <p
+                className={cn(
+                  "mt-3 max-w-2xl text-sm leading-6 md:text-base",
+                  subtleTextClass,
+                )}
+              >
+                Track WhatsApp growth, contacts, campaigns, and Jennifer's AI
+                auto-replies from one focused workspace.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <StatusPill tone="green">
+                  <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  QR connected
+                </StatusPill>
+                <StatusPill tone="orange">
+                  <Bot className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Jennifer active
+                </StatusPill>
+                <StatusPill tone="slate">
+                  <Clock3 className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  Starter plan
+                </StatusPill>
               </div>
-              <Button asChild>
-                <Link to="/billing">
-                  Upgrade now
-                  <ArrowRight className="ml-2 h-4 w-4" />
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                asChild
+                className={cn(
+                  "h-11 cursor-pointer rounded-2xl px-5 font-semibold",
+                  brandButtonClass,
+                )}
+              >
+                <Link to="/campaigns">
+                  Create campaign
+                  <ArrowRight className="ml-2 h-4 w-4" strokeWidth={2.4} />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                className={cn(
+                  "h-11 cursor-pointer rounded-2xl px-5 font-semibold",
+                  outlineButtonClass,
+                )}
+                variant="outline"
+              >
+                <Link to="/whatsapp">
+                  Manage WhatsApp
+                  <MessageSquare className="ml-2 h-4 w-4" strokeWidth={2.2} />
                 </Link>
               </Button>
             </div>
           </div>
-        ) : null}
+        </section>
 
-        {/* Stat cards */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {stats.map((stat) => (
             <StatCardView key={stat.label} stat={stat} />
           ))}
-        </div>
+        </section>
 
-        {/* Main grid */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-3">
-          {/* WhatsApp status card */}
-          <Card className="lg:col-span-2 border-border/60">
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-                    <MessageSquare className="h-5 w-5" strokeWidth={2} />
+        <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <Card className={cn(shellPanelClass, "overflow-hidden")}>
+            <CardContent className="p-0">
+              <div className="flex flex-col gap-6 border-b border-[#ece8df] p-6 dark:border-white/10 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className={eyebrowClass}>Today's revenue engine</p>
+                  <h2
+                    className={cn(
+                      "mt-2 text-xl font-bold tracking-tight",
+                      strongTextClass,
+                    )}
+                  >
+                    Leads moving through the pipeline
+                  </h2>
+                  <p className={cn("mt-1 text-sm", subtleTextClass)}>
+                    Mock data for now, shaped around the QR-first WhatsApp
+                    model.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[#ece8df] bg-[#fff8ee] px-4 py-3 dark:border-white/10 dark:bg-[#fe901d]/10">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#c96a00] dark:text-[#ffb84d]">
+                    64% ready
+                  </p>
+                  <Progress className="mt-2 h-2 w-36 bg-[#eadfce]" value={64} />
+                </div>
+              </div>
+
+              <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div className={cn("rounded-3xl border p-5", nestedPanelClass)}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={cn("text-sm font-bold", strongTextClass)}>
+                        Funnel snapshot
+                      </p>
+                      <p className={cn("mt-1 text-sm", subtleTextClass)}>
+                        Contacts by current sales stage
+                      </p>
+                    </div>
+                    <StatusPill tone="green">Live QR</StatusPill>
                   </div>
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      WhatsApp Connection
+
+                  <div className="mt-6 space-y-5">
+                    {funnelStages.map((stage) => (
+                      <div key={stage.label}>
+                        <div className="mb-2 flex items-center justify-between text-sm">
+                          <span className={cn("font-bold", strongTextClass)}>
+                            {stage.label}
+                          </span>
+                          <span className={subtleTextClass}>{stage.value}</span>
+                        </div>
+                        <div className="h-3 rounded-full bg-[#eef2f7] dark:bg-white/10">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#fe901d] to-[#ffb84d]"
+                            style={{ width: stage.width }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <div
+                    className={cn("rounded-3xl border p-5", nestedPanelClass)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={eyebrowClass}>Jennifer</p>
+                        <h3
+                          className={cn(
+                            "mt-2 text-2xl font-bold",
+                            strongTextClass,
+                          )}
+                        >
+                          Active
+                        </h3>
+                      </div>
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff3e1] text-[#fe901d] dark:bg-[#fe901d]/15 dark:text-[#ffb84d]">
+                        <Bot className="h-5 w-5" strokeWidth={2.2} />
+                      </div>
+                    </div>
+                    <p
+                      className={cn("mt-3 text-sm leading-6", subtleTextClass)}
+                    >
+                      AI auto-reply is enabled and ready to handle qualified
+                      inbound chats.
                     </p>
-                    <h3 className="mt-1 text-xl font-black tracking-tight text-foreground">
-                      {isApiMode ? "Official API" : "QR Mode"}
-                    </h3>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {isApiMode ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-600">
-                          <ShieldCheck className="h-3 w-3" />
-                          {flags.apiStatus === "approved"
-                            ? "API Active"
-                            : flags.apiStatus === "pending"
-                            ? "KYC Pending"
-                            : "Not connected"}
-                        </span>
-                      ) : flags.qrConnected ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Connected
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-600">
-                          <Clock className="h-3 w-3" />
-                          Not connected
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        <Phone className="h-3 w-3" />
-                        +1 555 123 4567
-                      </span>
+                  </div>
+
+                  <div
+                    className={cn("rounded-3xl border p-5", nestedPanelClass)}
+                  >
+                    <p className={eyebrowClass}>WhatsApp mode</p>
+                    <div className="mt-4 flex items-center justify-between gap-4">
+                      <div>
+                        <h3
+                          className={cn("text-2xl font-bold", strongTextClass)}
+                        >
+                          QR
+                        </h3>
+                        <p className={cn("mt-1 text-sm", subtleTextClass)}>
+                          Instant connection path
+                        </p>
+                      </div>
+                      <StatusPill tone="green">Connected</StatusPill>
                     </div>
                   </div>
                 </div>
               </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    Daily limit
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-foreground">
-                    1,000 msgs
-                  </p>
-                  <Progress className="mt-2 h-1.5" value={43} />
-                </div>
-                <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    Delivered today
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-foreground">
-                    432 / 1,000
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Resets at midnight
-                  </p>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    AI responses
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-foreground">
-                    287 today
-                  </p>
-                  <p className="mt-2 text-xs text-emerald-600 font-medium">
-                    66% of total replies
-                  </p>
-                </div>
-              </div>
-
-              {!isApiMode ? (
-                <div className="mt-5 flex flex-col gap-3 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-bold text-foreground">
-                      Ready to scale? Upgrade to Official API
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Higher limits, verified badge, and no disconnections.
-                    </p>
-                  </div>
-                  <Button asChild size="sm" className="shrink-0">
-                    <Link to="/whatsapp/setup">
-                      Upgrade to API
-                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                    </Link>
-                  </Button>
-                </div>
-              ) : null}
             </CardContent>
           </Card>
 
-          {/* Quick actions */}
-          <Card className="border-border/60">
-            <CardContent className="p-6">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                Quick actions
-              </p>
-              <h3 className="mt-1 text-lg font-black tracking-tight text-foreground">
-                Get things moving
-              </h3>
-              <div className="mt-4 grid gap-2">
-                {quickActions.map((action) => {
-                  const Icon = action.icon;
-                  return (
-                    <Link
-                      key={action.label}
-                      to={action.href}
-                      className="group flex items-center justify-between rounded-xl border border-border/60 bg-card px-3 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/5"
+          <div className="grid gap-6">
+            <Card className={shellPanelClass}>
+              <CardContent className="p-6">
+                <p className={eyebrowClass}>Quick actions</p>
+                <h2
+                  className={cn(
+                    "mt-2 text-xl font-bold tracking-tight",
+                    strongTextClass,
+                  )}
+                >
+                  Next best moves
+                </h2>
+                <div className="mt-5 grid gap-3">
+                  {quickActions.map((action) => {
+                    const Icon = action.icon;
+
+                    return (
+                      <Link
+                        className={cn(
+                          "group flex cursor-pointer items-center justify-between rounded-2xl border px-4 py-3 text-sm font-semibold transition hover:-translate-y-0.5",
+                          "border-[#ece8df] bg-[#fbfaf7] text-[#344054] hover:border-[#fe901d]/40 hover:bg-[#fff8ee]",
+                          "dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-200 dark:hover:border-[#fe901d]/40 dark:hover:bg-[#fe901d]/10",
+                        )}
+                        key={action.label}
+                        to={action.href}
+                      >
+                        <span className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#fff3e1] text-[#fe901d] dark:bg-[#fe901d]/15 dark:text-[#ffb84d]">
+                            <Icon className="h-4.5 w-4.5" strokeWidth={2.2} />
+                          </span>
+                          {action.label}
+                        </span>
+                        <ArrowRight
+                          className="h-4 w-4 text-[#fe901d] transition group-hover:translate-x-0.5"
+                          strokeWidth={2.4}
+                        />
+                      </Link>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className={shellPanelClass}>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className={eyebrowClass}>Upgrade path</p>
+                    <h2
+                      className={cn(
+                        "mt-2 text-xl font-bold tracking-tight",
+                        strongTextClass,
+                      )}
                     >
-                      <span className="flex items-center gap-2.5">
-                        <Icon className="h-4 w-4 text-muted-foreground group-hover:text-primary" strokeWidth={2} />
-                        {action.label}
+                      Official API
+                    </h2>
+                  </div>
+                  <StatusPill tone="blue">Not setup</StatusPill>
+                </div>
+                <p className={cn("mt-3 text-sm leading-6", subtleTextClass)}>
+                  Start with QR, then upgrade when campaign volume or Meta KYC
+                  requirements become important.
+                </p>
+                <Button
+                  asChild
+                  className={cn(
+                    "mt-5 h-11 w-full cursor-pointer rounded-2xl font-semibold",
+                    brandButtonClass,
+                  )}
+                >
+                  <Link to="/whatsapp/setup">
+                    Start API setup
+                    <ArrowRight className="ml-2 h-4 w-4" strokeWidth={2.4} />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <Card className={shellPanelClass}>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className={eyebrowClass}>Recent activity</p>
+                  <h2
+                    className={cn(
+                      "mt-2 text-xl font-bold tracking-tight",
+                      strongTextClass,
+                    )}
+                  >
+                    Workspace pulse
+                  </h2>
+                </div>
+                <Button
+                  asChild
+                  className={cn(
+                    "cursor-pointer rounded-2xl",
+                    outlineButtonClass,
+                  )}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Link to="/contacts">
+                    View contacts
+                    <ArrowRight
+                      className="ml-1.5 h-3.5 w-3.5"
+                      strokeWidth={2.4}
+                    />
+                  </Link>
+                </Button>
+              </div>
+
+              <div className="mt-5 divide-y divide-[#ece8df] dark:divide-white/10">
+                {activityItems.map((item) => {
+                  const Icon = item.icon;
+
+                  return (
+                    <div
+                      className="flex items-start gap-4 py-4 first:pt-0 last:pb-0"
+                      key={`${item.title}-${item.time}`}
+                    >
+                      <ActivityIcon icon={Icon} />
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={cn(
+                            "text-sm font-semibold",
+                            strongTextClass,
+                          )}
+                        >
+                          {item.title}
+                        </p>
+                        <p className={cn("mt-1 text-sm", subtleTextClass)}>
+                          {item.description}
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "shrink-0 text-xs font-semibold",
+                          subtleTextClass,
+                        )}
+                      >
+                        {item.time}
                       </span>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" strokeWidth={2} />
-                    </Link>
+                    </div>
                   );
                 })}
               </div>
             </CardContent>
           </Card>
-        </div>
 
-        {/* Recent activity */}
-        <Card className="mt-6 border-border/60">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  Recent activity
-                </p>
-                <h3 className="mt-1 text-lg font-black tracking-tight text-foreground">
-                  What's happening in your workspace
-                </h3>
-              </div>
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/contacts">
-                  View all
-                  <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                </Link>
-              </Button>
-            </div>
+          <Card className={shellPanelClass}>
+            <CardContent className="p-6">
+              <p className={eyebrowClass}>Broadcast readiness</p>
+              <h2
+                className={cn(
+                  "mt-2 text-xl font-bold tracking-tight",
+                  strongTextClass,
+                )}
+              >
+                Campaign limits
+              </h2>
+              <p className={cn("mt-2 text-sm leading-6", subtleTextClass)}>
+                QR mode is perfect for instant replies. Bulk sending should
+                guide users toward Official API.
+              </p>
 
-            <div className="mt-4 divide-y divide-border/60">
-              {recentActivity.map((item, idx) => (
-                <div key={idx} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                  <ActivityIcon type={item.type} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground">{item.title}</p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
+              <div className="mt-5 space-y-3">
+                <div className={cn("rounded-2xl border p-4", nestedPanelClass)}>
+                  <div className="flex items-center justify-between">
+                    <span className={cn("text-sm font-bold", strongTextClass)}>
+                      QR daily send estimate
+                    </span>
+                    <span className="text-sm font-bold text-[#fe901d]">
+                      43%
+                    </span>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">{item.time}</span>
+                  <Progress
+                    className="mt-3 h-2 bg-[#eadfce] dark:bg-white/10"
+                    value={43}
+                  />
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                <div className={cn("rounded-2xl border p-4", nestedPanelClass)}>
+                  <p className={cn("text-sm font-bold", strongTextClass)}>
+                    Recommended next step
+                  </p>
+                  <p className={cn("mt-1 text-sm", subtleTextClass)}>
+                    Keep QR active, prepare API setup when campaigns launch.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
       </div>
     </UserLayout>
   );
