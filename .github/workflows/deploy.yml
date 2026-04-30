@@ -48,7 +48,12 @@ jobs:
           DEPLOY_PATH="${DEPLOY_PATH:-$HOME/www/app.quicreply.io}"
 
           ssh -o ConnectTimeout=15 -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "cd '$DEPLOY_PATH' && bash scripts/deploy-production.sh"
+            "cd '$DEPLOY_PATH' && \
+              if ! git diff --quiet || ! git diff --cached --quiet || [ -n \"\$(git ls-files --others --exclude-standard)\" ]; then \
+                echo '==> Stashing local VPS changes before deploy'; \
+                git stash push --include-untracked -m \"github-actions-predeploy-\$(date +%Y%m%d%H%M%S)\"; \
+              fi && \
+              bash scripts/deploy-production.sh"
 
       - name: Print VPS logs on failure
         if: failure()
