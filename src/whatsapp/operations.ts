@@ -74,21 +74,31 @@ const completeOfficialApiSetupArgsSchema = z.object({
 
 function ensureUserId(context: any) {
   if (!context.user?.id) {
-    throw new HttpError(401, "Only authenticated users can access WhatsApp management.");
+    throw new HttpError(
+      401,
+      "Only authenticated users can access WhatsApp management.",
+    );
   }
 
   return context.user.id as string;
 }
 
 function normalizeQrStatus(value: string | null | undefined): WhatsAppQrStatus {
-  if (value === "connected" || value === "expired" || value === "failed" || value === "pending") {
+  if (
+    value === "connected" ||
+    value === "expired" ||
+    value === "failed" ||
+    value === "pending"
+  ) {
     return value;
   }
 
   return "disconnected";
 }
 
-function normalizeApiStatus(value: string | null | undefined): "none" | "pending" | "approved" {
+function normalizeApiStatus(
+  value: string | null | undefined,
+): "none" | "pending" | "approved" {
   if (value === "pending" || value === "approved") {
     return value;
   }
@@ -96,7 +106,9 @@ function normalizeApiStatus(value: string | null | undefined): "none" | "pending
   return "none";
 }
 
-function normalizeWhatsAppMode(value: string | null | undefined): "qr" | "api" | "both" {
+function normalizeWhatsAppMode(
+  value: string | null | undefined,
+): "qr" | "api" | "both" {
   if (value === "api" || value === "both") {
     return value;
   }
@@ -104,9 +116,12 @@ function normalizeWhatsAppMode(value: string | null | undefined): "qr" | "api" |
   return "qr";
 }
 
-function toWorkspaceState(organization: OrganizationRecord | null): WhatsAppWorkspaceState {
+function toWorkspaceState(
+  organization: OrganizationRecord | null,
+): WhatsAppWorkspaceState {
   const qrStatus = normalizeQrStatus(
-    organization?.qrStatus ?? (organization?.qrConnected ? "connected" : "disconnected"),
+    organization?.qrStatus ??
+      (organization?.qrConnected ? "connected" : "disconnected"),
   );
 
   return {
@@ -116,7 +131,9 @@ function toWorkspaceState(organization: OrganizationRecord | null): WhatsAppWork
       status: qrStatus,
       connected: organization?.qrConnected ?? false,
       codeData:
-        qrStatus === "connected" || qrStatus === "expired" ? null : organization?.qrCodeData ?? null,
+        qrStatus === "connected" || qrStatus === "expired"
+          ? null
+          : organization?.qrCodeData ?? null,
       sessionId: organization?.qrSessionId ?? null,
       deviceInfo: organization?.qrDeviceInfo ?? null,
       lastSeen: organization?.qrLastSeen?.toISOString() ?? null,
@@ -142,7 +159,10 @@ async function getWorkspaceStateForUser(userId: string) {
   return toWorkspaceState(organization);
 }
 
-async function upsertOrganization(userId: string, data: Record<string, unknown>) {
+async function upsertOrganization(
+  userId: string,
+  data: Record<string, unknown>,
+) {
   const sanitizedData = Object.fromEntries(
     Object.entries(data).filter(([, value]) => value !== undefined),
   );
@@ -184,9 +204,12 @@ export const startWhatsAppQrHandshake = async (
     qrLastSeen: qrResponse.lastSeen,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: qrResponse.deviceInfo,
-    apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization?.apiPhoneNumber ?? undefined,
+    apiPhoneNumber:
+      qrResponse.apiPhoneNumber ?? organization?.apiPhoneNumber ?? undefined,
     apiMessagingLimit:
-      qrResponse.apiMessagingLimit ?? organization?.apiMessagingLimit ?? undefined,
+      qrResponse.apiMessagingLimit ??
+      organization?.apiMessagingLimit ??
+      undefined,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -206,7 +229,8 @@ export const refreshWhatsAppQrStatus = async (
   const qrResponse = await getMockWhatsAppQrStatus(organization.qrSessionId);
   const nextQrStatus = qrResponse.qrStatus;
   const isConnected = nextQrStatus === "connected";
-  const isTerminalWithoutQr = nextQrStatus === "connected" || nextQrStatus === "expired";
+  const isTerminalWithoutQr =
+    nextQrStatus === "connected" || nextQrStatus === "expired";
 
   const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode:
@@ -215,13 +239,16 @@ export const refreshWhatsAppQrStatus = async (
         : organization.whatsappMode ?? "qr",
     qrConnected: isConnected,
     qrStatus: nextQrStatus,
-    qrCodeData: isTerminalWithoutQr ? null : qrResponse.qrCodeData ?? organization.qrCodeData,
+    qrCodeData: isTerminalWithoutQr
+      ? null
+      : qrResponse.qrCodeData ?? organization.qrCodeData,
     qrSessionId: qrResponse.sessionId ?? organization.qrSessionId,
     qrLastSeen: qrResponse.lastSeen ?? organization.qrLastSeen,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: qrResponse.deviceInfo ?? organization.qrDeviceInfo,
     apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization.apiPhoneNumber,
-    apiMessagingLimit: qrResponse.apiMessagingLimit ?? organization.apiMessagingLimit,
+    apiMessagingLimit:
+      qrResponse.apiMessagingLimit ?? organization.apiMessagingLimit,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -232,7 +259,10 @@ export const updateJenniferStatus = async (
   context: any,
 ): Promise<WhatsAppWorkspaceState> => {
   const userId = ensureUserId(context);
-  const args = ensureArgsSchemaOrThrowHttpError(updateJenniferArgsSchema, rawArgs);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    updateJenniferArgsSchema,
+    rawArgs,
+  );
 
   const updatedOrganization = await upsertOrganization(userId, {
     isAiActive: args.isAiActive,
@@ -288,7 +318,8 @@ export const completeOfficialApiSetup = async (
       update: {
         whatsappMode: hasQr ? "both" : "api",
         apiStatus: "approved",
-        apiPhoneNumber: args.apiPhoneNumber || organization?.apiPhoneNumber || null,
+        apiPhoneNumber:
+          args.apiPhoneNumber || organization?.apiPhoneNumber || null,
         apiMessagingLimit: organization?.apiMessagingLimit ?? "10,000 msgs/day",
       },
       create: {

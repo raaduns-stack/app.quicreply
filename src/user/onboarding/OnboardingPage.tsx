@@ -325,8 +325,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
   const [showQrFlow, setShowQrFlow] = useState(false);
   const [showTrainingOverlay, setShowTrainingOverlay] = useState(false);
   const isOnboardingCompleted =
-    (user as AuthUser & { onboardingCompleted?: boolean }).onboardingCompleted ===
-    true;
+    (user as AuthUser & { onboardingCompleted?: boolean })
+      .onboardingCompleted === true;
 
   const form = useForm<OnboardingFormValues>({
     resolver: zodResolver(onboardingFormSchema),
@@ -370,7 +370,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       industry: data.organization.industry ?? "",
       country: data.organization.country ?? "",
       primaryGoal:
-        (data.organization.primaryGoal as OnboardingFormValues["primaryGoal"]) ??
+        (data.organization
+          .primaryGoal as OnboardingFormValues["primaryGoal"]) ??
         defaultValues.primaryGoal,
       trafficSources:
         (data.organization.trafficSources.filter((source) =>
@@ -379,7 +380,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           ),
         ) as OnboardingFormValues["trafficSources"]) ?? [],
       whatsappMode:
-        (data.organization.whatsappMode as OnboardingFormValues["whatsappMode"]) ??
+        (data.organization
+          .whatsappMode as OnboardingFormValues["whatsappMode"]) ??
         defaultValues.whatsappMode,
       qrConnected: data.organization.qrConnected ?? false,
       apiStatus:
@@ -532,7 +534,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
             Business Info
           </h3>
           <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
-            Keep your business fields, just organized into cleaner steps.
+            Set the business identity that will shape the rest of your
+            onboarding.
           </p>
         </div>
       </div>
@@ -556,9 +559,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                     onClick={() => {
                       const previousFlow = form.getValues("flow");
                       const previousDefault =
-                        onboardingFlowContent[previousFlow].firstMessagePlaceholder;
+                        onboardingFlowContent[previousFlow]
+                          .firstMessagePlaceholder;
                       const nextDefault =
-                        onboardingFlowContent[option.value].firstMessagePlaceholder;
+                        onboardingFlowContent[option.value]
+                          .firstMessagePlaceholder;
 
                       form.setValue("flow", option.value, {
                         shouldDirty: true,
@@ -566,7 +571,10 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                       });
 
                       const currentMessage = form.getValues("firstAiMessage");
-                      if (!currentMessage || currentMessage === previousDefault) {
+                      if (
+                        !currentMessage ||
+                        currentMessage === previousDefault
+                      ) {
                         form.setValue("firstAiMessage", nextDefault, {
                           shouldDirty: true,
                         });
@@ -615,57 +623,67 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
-                Business Name
-              </label>
-              <input
-                autoComplete="organization"
-                className={inputClass}
-                placeholder="Enter business name"
-                {...form.register("businessName")}
-              />
-              <FieldError message={form.formState.errors.businessName?.message} />
+          <div className="space-y-4 border-t border-[#f1efe8] pt-6 dark:border-white/10">
+            <div className="flex items-center gap-2">
+              <Store className="h-5 w-5 text-[#fe901d]" />
+              <h4 className="text-base font-bold text-[#161d2f] dark:text-slate-100">
+                A. Business Info
+              </h4>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
-                Phone Number
-              </label>
-              <input
-                autoComplete="tel"
-                className={inputClass}
-                placeholder="Enter phone number"
-                {...form.register("phoneNumber")}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
-                Industry
-              </label>
-              <select className={inputClass} {...form.register("industry")}>
-                <option value="">Select industry</option>
-                {industryOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <FieldError message={form.formState.errors.industry?.message} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
-                Country
-              </label>
-              <select className={inputClass} {...form.register("country")}>
-                <option value="">Select country</option>
-                {countryOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <FieldError message={form.formState.errors.country?.message} />
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                  Business Name
+                </label>
+                <input
+                  autoComplete="organization"
+                  className={inputClass}
+                  placeholder="Enter business name"
+                  {...form.register("businessName")}
+                />
+                <FieldError
+                  message={form.formState.errors.businessName?.message}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                  Phone Number
+                </label>
+                <input
+                  autoComplete="tel"
+                  className={inputClass}
+                  placeholder="Enter phone number"
+                  {...form.register("phoneNumber")}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                  Industry
+                </label>
+                <select className={inputClass} {...form.register("industry")}>
+                  <option value="">Select industry</option>
+                  {industryOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <FieldError message={form.formState.errors.industry?.message} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
+                  Country
+                </label>
+                <select className={inputClass} {...form.register("country")}>
+                  <option value="">Select country</option>
+                  {countryOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <FieldError message={form.formState.errors.country?.message} />
+              </div>
             </div>
           </div>
         </div>
@@ -682,19 +700,28 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                 <span>
-                  <strong className="text-[#161d2f] dark:text-slate-100">org.name</strong>: Business identity.
+                  <strong className="text-[#161d2f] dark:text-slate-100">
+                    org.name
+                  </strong>
+                  : Business identity.
                 </span>
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                 <span>
-                  <strong className="text-[#161d2f] dark:text-slate-100">org.primaryGoal</strong>: Revenue outcome.
+                  <strong className="text-[#161d2f] dark:text-slate-100">
+                    org.primaryGoal
+                  </strong>
+                  : Revenue outcome.
                 </span>
               </li>
               <li className="flex gap-2">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
                 <span>
-                  <strong className="text-[#161d2f] dark:text-slate-100">org.trafficSources</strong>: Funnel entry points.
+                  <strong className="text-[#161d2f] dark:text-slate-100">
+                    org.trafficSources
+                  </strong>
+                  : Funnel entry points.
                 </span>
               </li>
             </ul>
@@ -709,7 +736,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       </div>
 
       <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-        <button className={ghostButtonClass} onClick={() => navigate("/")} type="button">
+        <button
+          className={ghostButtonClass}
+          onClick={() => navigate("/")}
+          type="button"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
@@ -720,7 +751,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           type="button"
         >
           {buttonBusy ? "Saving..." : "Continue to Revenue Goal"}
-          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+          {buttonBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowRight className="h-4 w-4" />
+          )}
         </button>
       </div>
     </SurfaceCard>
@@ -767,7 +802,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       <FieldError message={form.formState.errors.primaryGoal?.message} />
 
       <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-        <button className={ghostButtonClass} onClick={() => setCurrentStep(1)} type="button">
+        <button
+          className={ghostButtonClass}
+          onClick={() => setCurrentStep(1)}
+          type="button"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
@@ -778,7 +817,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           type="button"
         >
           {buttonBusy ? "Saving..." : "Continue to Traffic Sources"}
-          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+          {buttonBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowRight className="h-4 w-4" />
+          )}
         </button>
       </div>
     </SurfaceCard>
@@ -794,7 +837,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           Traffic Sources
         </h3>
         <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
-          Select the source types that usually bring conversations into this workspace.
+          Select the source types that usually bring conversations into this
+          workspace.
         </p>
       </div>
 
@@ -833,10 +877,18 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           );
         })}
       </div>
-      <FieldError message={form.formState.errors.trafficSources?.message as string | undefined} />
+      <FieldError
+        message={
+          form.formState.errors.trafficSources?.message as string | undefined
+        }
+      />
 
       <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-        <button className={ghostButtonClass} onClick={() => setCurrentStep(2)} type="button">
+        <button
+          className={ghostButtonClass}
+          onClick={() => setCurrentStep(2)}
+          type="button"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
@@ -847,7 +899,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           type="button"
         >
           {buttonBusy ? "Saving..." : "Continue to WhatsApp"}
-          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+          {buttonBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowRight className="h-4 w-4" />
+          )}
         </button>
       </div>
     </SurfaceCard>
@@ -864,7 +920,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
             WhatsApp Connection
           </h3>
           <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
-            Choose how to link your number. QR is highlighted as the default fast path.
+            Choose how to link your number. QR is highlighted as the default
+            fast path.
           </p>
         </div>
         <div className="rounded-2xl bg-[#fff8ec] px-5 py-3 text-right dark:bg-[rgba(254,144,29,0.08)]">
@@ -898,7 +955,9 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                       { shouldDirty: true },
                     );
                     if (option.value !== "qr") {
-                      form.setValue("qrConnected", false, { shouldDirty: true });
+                      form.setValue("qrConnected", false, {
+                        shouldDirty: true,
+                      });
                     }
                   }}
                 >
@@ -953,13 +1012,18 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_.9fr]">
-          <ChoiceCard active className="cursor-default space-y-5 rounded-[24px] p-5">
+          <ChoiceCard
+            active
+            className="cursor-default space-y-5 rounded-[24px] p-5"
+          >
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#a58f72]">
                 Scanning now
               </p>
               <h4 className="mt-2 text-2xl font-black text-[#161d2f] dark:text-slate-100">
-                {currentFlow === "sales" ? "Scan for Sales OS" : "Scan for Broadcast OS"}
+                {currentFlow === "sales"
+                  ? "Scan for Sales OS"
+                  : "Scan for Broadcast OS"}
               </h4>
               <p className="mt-1 text-sm text-[#6b7280] dark:text-slate-300/75">
                 Open WhatsApp &gt; Linked Devices &gt; Link a Device.
@@ -969,18 +1033,27 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
             <div className="relative mx-auto h-[240px] w-[240px] overflow-hidden rounded-[24px] border border-[#ece8df] bg-white dark:border-white/10 dark:bg-[#0f172a]">
               <div className="absolute inset-[14px] rounded-[16px] bg-[linear-gradient(135deg,#fffaf0,#ffffff)] opacity-90 dark:bg-[linear-gradient(135deg,#111827,#0f172a)]" />
               <div className="absolute inset-[18px] z-10 grid place-items-center rounded-[16px] border border-dashed border-[#d9d3c5] bg-white dark:border-white/15 dark:bg-[#111827]">
-                <QrCode className="h-28 w-28 text-[#fe901d]" strokeWidth={1.8} />
+                <QrCode
+                  className="h-28 w-28 text-[#fe901d]"
+                  strokeWidth={1.8}
+                />
               </div>
               <div className="absolute left-4 right-4 top-6 z-20 h-[2px] animate-[pulse_2.2s_ease-in-out_infinite] bg-[linear-gradient(90deg,transparent,#fe901d,transparent)] shadow-[0_0_18px_#fe901d]" />
             </div>
           </ChoiceCard>
 
-          <ChoiceCard active={false} className="cursor-default space-y-4 rounded-[24px] p-5">
+          <ChoiceCard
+            active={false}
+            className="cursor-default space-y-4 rounded-[24px] p-5"
+          >
             <h4 className="text-xl font-black text-[#161d2f] dark:text-slate-100">
-              {currentFlow === "sales" ? "Instant Revenue Engine" : "Instant Broadcast Engine"}
+              {currentFlow === "sales"
+                ? "Instant Revenue Engine"
+                : "Instant Broadcast Engine"}
             </h4>
             <p className="text-sm leading-7 text-[#6b7280] dark:text-slate-300/75">
-              QR is the fastest way to start today. You can always upgrade to the Official API later.
+              QR is the fastest way to start today. You can always upgrade to
+              the Official API later.
             </p>
             <button
               className="inline-flex cursor-pointer items-center gap-2 rounded-[12px] border border-[#d1d5db] bg-white px-5 py-2.5 text-sm font-semibold text-[#374151] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5"
@@ -1047,7 +1120,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           AI & Lead Engine Setup
         </h3>
         <p className="mt-2 max-w-2xl text-base leading-7 text-[#6b7280] dark:text-slate-300/75">
-          Configure your lead capture rules and train Jennifer with the context of your offer.
+          Configure your lead capture rules and train Jennifer with the context
+          of your offer.
         </p>
       </div>
 
@@ -1132,7 +1206,9 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                   rows={3}
                   {...form.register("businessDescription")}
                 />
-                <FieldError message={form.formState.errors.businessDescription?.message} />
+                <FieldError
+                  message={form.formState.errors.businessDescription?.message}
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-[#374151] dark:text-slate-200">
@@ -1144,7 +1220,9 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                   rows={3}
                   {...form.register("productsServices")}
                 />
-                <FieldError message={form.formState.errors.productsServices?.message} />
+                <FieldError
+                  message={form.formState.errors.productsServices?.message}
+                />
               </div>
             </div>
           </SurfaceCard>
@@ -1165,7 +1243,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                 {...form.register("firstAiMessage")}
               />
               <p className="text-xs text-[#6b7280] dark:text-slate-300/75">
-                Jennifer uses this tone as the opening message when new conversations start.
+                Jennifer uses this tone as the opening message when new
+                conversations start.
               </p>
             </div>
           </SurfaceCard>
@@ -1189,7 +1268,8 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                     Activate Jennifer (AI Auto-Reply)
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[#6b7280] dark:text-slate-300/75">
-                    n8n can read this flag before replying. If turned off, Jennifer stays silent.
+                    n8n can read this flag before replying. If turned off,
+                    Jennifer stays silent.
                   </p>
                 </div>
                 <Toggle
@@ -1208,8 +1288,9 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                 Saved fields
               </div>
               <p className="mt-2">
-                `org.settings`, `org.businessDescription`, `org.productsServices`, and `org.firstAiMessage`
-                will power Jennifer later on.
+                `org.settings`, `org.businessDescription`,
+                `org.productsServices`, and `org.firstAiMessage` will power
+                Jennifer later on.
               </p>
             </div>
           </SurfaceCard>
@@ -1217,7 +1298,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       </div>
 
       <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-        <button className={ghostButtonClass} onClick={() => setCurrentStep(4)} type="button">
+        <button
+          className={ghostButtonClass}
+          onClick={() => setCurrentStep(4)}
+          type="button"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
@@ -1228,7 +1313,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           type="button"
         >
           {buttonBusy ? "Initializing..." : flowCopy.initButtonLabel}
-          {buttonBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
+          {buttonBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Rocket className="h-4 w-4" />
+          )}
         </button>
       </div>
     </SurfaceCard>
@@ -1255,24 +1344,34 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58f72]">
             Leads
           </p>
-          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">Active</p>
+          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">
+            Active
+          </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#0f172a]">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58f72]">
             AI Rep
           </p>
-          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">Training</p>
+          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">
+            Training
+          </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#0f172a]">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#a58f72]">
             Dashboard
           </p>
-          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">Unlocked</p>
+          <p className="mt-1 font-bold text-[#161d2f] dark:text-slate-100">
+            Unlocked
+          </p>
         </div>
       </div>
 
       <div className="flex flex-col items-center justify-between gap-4 pt-2 md:flex-row">
-        <button className={ghostButtonClass} onClick={() => setCurrentStep(5)} type="button">
+        <button
+          className={ghostButtonClass}
+          onClick={() => setCurrentStep(5)}
+          type="button"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
@@ -1283,7 +1382,11 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           type="button"
         >
           {buttonBusy ? "Unlocking..." : "Enter Dashboard"}
-          {buttonBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Rocket className="h-5 w-5" />}
+          {buttonBusy ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <Rocket className="h-5 w-5" />
+          )}
         </button>
       </div>
     </SurfaceCard>
@@ -1317,12 +1420,15 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           </div>
         ) : error ? (
           <div className="rounded-[20px] border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-600">
-            We could not load your onboarding state right now. Refresh and try again.
+            We could not load your onboarding state right now. Refresh and try
+            again.
           </div>
         ) : (
           <div className="space-y-8">
             {stepHeader}
-            <div className="mx-auto w-full max-w-[980px]">{renderStepContent()}</div>
+            <div className="mx-auto w-full max-w-[980px]">
+              {renderStepContent()}
+            </div>
           </div>
         )}
       </div>

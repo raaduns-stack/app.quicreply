@@ -1,7 +1,11 @@
 import { type AuthUser } from "wasp/auth";
-import DarkModeSwitcher from "../../client/components/DarkModeSwitcher";
 import { cn } from "../../client/utils";
 import { UserDropdown } from "../UserDropdown";
+import {
+  dashboardShellBorderClassName,
+  dashboardShellHeaderBackgroundClassName,
+  dashboardShellHeaderClassName,
+} from "./layoutConstants";
 
 const Header = (props: {
   sidebarOpen: string | boolean | undefined;
@@ -11,8 +15,15 @@ const Header = (props: {
   user: AuthUser;
 }) => {
   return (
-    <header className="bg-background/40 backdrop-blur-md border-border sticky top-0 z-10 flex w-full border-b transition-all duration-300">
-      <div className="flex grow items-center justify-between px-4 lg:px-8 py-[17px]">
+    <header
+      className={cn(
+        dashboardShellHeaderClassName,
+        dashboardShellBorderClassName,
+        dashboardShellHeaderBackgroundClassName,
+        "sticky top-0 z-10 flex w-full shrink-0 border-b transition-all duration-300",
+      )}
+    >
+      <div className="flex grow items-center justify-between px-4 lg:px-8">
         {/* <!-- Left side: Sidebar Toggle for mobile --> */}
         <div className="flex items-center lg:hidden">
           <button
@@ -21,7 +32,7 @@ const Header = (props: {
               e.stopPropagation();
               props.setSidebarOpen(!props.sidebarOpen);
             }}
-            className="z-99999 border-border bg-background block rounded-lg border p-2 shadow-sm"
+            className="z-99999 block rounded-xl border border-[#ece8df] bg-white p-2 shadow-sm dark:border-white/10 dark:bg-[#101826]"
           >
             <span className="h-5.5 w-5.5 relative block cursor-pointer">
               <span className="du-block absolute right-0 h-full w-full">
