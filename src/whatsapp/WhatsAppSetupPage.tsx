@@ -46,7 +46,7 @@ type MockWaba = { id: string; name: string; phone: string | null; status: "avail
 
 const mockBusinesses: MockBusiness[] = [
   { id: "biz_001", name: "QuicReply Enterprises", verified: true, country: "Nigeria" },
-  { id: "biz_002", name: "Azam's Side Hustle Ltd", verified: false, country: "Nigeria" },
+  { id: "biz_002", name: "Customer Growth Studio", verified: false, country: "Nigeria" },
   { id: "biz_003", name: "Growth Labs Africa", verified: true, country: "Nigeria" },
 ];
 
