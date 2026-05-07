@@ -506,7 +506,8 @@ export const refreshWhatsAppQrStatus = async (
     qrSessionId: qrResponse.sessionId ?? organization.qrSessionId,
     qrLastSeen: qrResponse.lastSeen ?? organization.qrLastSeen,
     qrStatusCheckedAt: new Date(),
-    qrDeviceInfo: qrResponse.deviceInfo ?? organization.qrDeviceInfo,
+    qrDeviceInfo:
+      qrResponse.deviceInfo ?? (isConnected ? null : organization.qrDeviceInfo),
     evolutionInstanceName:
       qrResponse.evolutionInstanceName ??
       organization.evolutionInstanceName ??

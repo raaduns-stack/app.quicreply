@@ -243,6 +243,55 @@ function extractEvolutionInstanceId(value: unknown) {
   return findFirstStringByKeys(value, ["instanceId", "id"]);
 }
 
+function getEvolutionInstanceRecord(
+  value: unknown,
+  instanceName: string,
+): Record<string, unknown> | null {
+  const records = Array.isArray(value) ? value : unwrapEvolutionRecords(value);
+
+  for (const item of records) {
+    const record = asRecord(item);
+    const instance = asRecord(record?.instance) ?? record;
+    const name = findFirstStringByKeys(instance, ["instanceName"]);
+
+    if (name === instanceName) {
+      return instance;
+    }
+  }
+
+  return null;
+}
+
+function normalizeEvolutionOwner(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const digits = value
+    .replace(/@s\.whatsapp\.net|@c\.us|@g\.us/gi, "")
+    .replace(/\D/g, "");
+
+  return digits ? `+${digits}` : value;
+}
+
+function getEvolutionDeviceInfo(value: unknown, instanceName: string) {
+  const instance = getEvolutionInstanceRecord(value, instanceName);
+  if (!instance) {
+    return null;
+  }
+
+  const profileName = findFirstStringByKeys(instance, ["profileName"]);
+  const owner = normalizeEvolutionOwner(
+    findFirstStringByKeys(instance, ["owner", "wuid"]),
+  );
+
+  if (profileName && owner) {
+    return `${profileName} · ${owner}`;
+  }
+
+  return profileName ?? owner;
+}
+
 async function evolutionRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -398,35 +447,59 @@ function normalizeMessageLogs(
   response: unknown,
   limit: number,
 ): WhatsAppMessageLog[] {
-  return unwrapEvolutionRecords(response)
-    .slice(0, limit)
-    .map((rawItem, index) => {
-      const item = asRecord(rawItem) ?? {};
-      const key = asRecord(item.key);
-      const fromMe = item.fromMe === true || key?.fromMe === true;
-      const remoteJid =
-        findFirstStringByKeys(key, ["remoteJid", "participant"]) ??
-        findFirstStringByKeys(item, ["remoteJid", "from", "to", "sender"]);
+  const logs = unwrapEvolutionRecords(response).map((rawItem, index) => {
+    const item = asRecord(rawItem) ?? {};
+    const key = asRecord(item.key);
+    const fromMe = item.fromMe === true || key?.fromMe === true;
+    const direction: WhatsAppMessageLog["direction"] = fromMe
+      ? "outbound"
+      : "inbound";
+    const remoteJid =
+      findFirstStringByKeys(key, ["remoteJid", "participant"]) ??
+      findFirstStringByKeys(item, ["remoteJid", "from", "to", "sender"]);
 
-      return {
-        id:
-          findFirstStringByKeys(item, ["id", "messageId"]) ??
-          findFirstStringByKeys(key, ["id"]) ??
-          `message-${index}`,
-        direction: fromMe ? "outbound" : "inbound",
-        from: fromMe ? null : remoteJid,
-        to: fromMe ? remoteJid : null,
-        pushName: findFirstStringByKeys(item, ["pushName", "name"]),
-        messageType: findFirstStringByKeys(item, ["messageType", "type"]),
-        text: extractMessageText(item),
-        timestamp:
-          getTimestampIso(item.messageTimestamp) ??
-          getTimestampIso(item.timestamp) ??
-          getTimestampIso(item.createdAt),
-        status: findFirstStringByKeys(item, ["status"]),
-        source: findFirstStringByKeys(item, ["source"]),
-      };
-    });
+    return {
+      id:
+        findFirstStringByKeys(item, ["id", "messageId"]) ??
+        findFirstStringByKeys(key, ["id"]) ??
+        `message-${index}`,
+      direction,
+      from: fromMe ? null : remoteJid,
+      to: fromMe ? remoteJid : null,
+      pushName: findFirstStringByKeys(item, ["pushName", "name"]),
+      messageType: findFirstStringByKeys(item, ["messageType", "type"]),
+      text: extractMessageText(item),
+      timestamp:
+        getTimestampIso(item.messageTimestamp) ??
+        getTimestampIso(item.timestamp) ??
+        getTimestampIso(item.createdAt),
+      status: findFirstStringByKeys(item, ["status"]),
+      source: findFirstStringByKeys(item, ["source"]),
+    };
+  });
+
+  const seenKeys = new Set<string>();
+  const uniqueLogs: WhatsAppMessageLog[] = [];
+
+  for (const log of logs) {
+    const key = [
+      log.id,
+      log.direction,
+      log.from ?? "",
+      log.to ?? "",
+      log.text,
+      log.timestamp ?? "",
+    ].join("|");
+
+    if (seenKeys.has(key)) {
+      continue;
+    }
+
+    seenKeys.add(key);
+    uniqueLogs.push(log);
+  }
+
+  return uniqueLogs.slice(0, limit);
 }
 
 function buildMockMessageLogs(): WhatsAppMessageLog[] {
@@ -495,6 +568,14 @@ async function getEvolutionConnectionState(input: EvolutionProviderInput) {
   );
 }
 
+async function fetchEvolutionInstance(input: EvolutionProviderInput) {
+  return evolutionRequest<unknown>(
+    `/instance/fetchInstances?instanceName=${encodeURIComponent(
+      input.instanceName,
+    )}`,
+  );
+}
+
 async function logoutEvolutionInstance(input: EvolutionProviderInput) {
   return evolutionRequest<unknown>(
     `/instance/logout/${encodeURIComponent(input.instanceName)}`,
@@ -540,11 +621,17 @@ export async function startWhatsAppQrSession(
       ? "pending"
       : normalizedStatus;
 
+  const instanceResponse =
+    qrStatus === "connected" ? await fetchEvolutionInstance(input) : null;
+
   return {
     sessionId: input.instanceName,
     qrCodeData,
     qrStatus,
-    deviceInfo: qrStatus === "connected" ? input.instanceName : null,
+    deviceInfo:
+      qrStatus === "connected"
+        ? getEvolutionDeviceInfo(instanceResponse, input.instanceName)
+        : null,
     lastSeen: qrStatus === "connected" ? new Date() : null,
     apiPhoneNumber: null,
     apiMessagingLimit: null,
@@ -586,11 +673,17 @@ export async function refreshWhatsAppQrSessionStatus(
 
   const isConnected = qrStatus === "connected";
 
+  const instanceResponse = isConnected
+    ? await fetchEvolutionInstance(input)
+    : null;
+
   return {
     sessionId: input.instanceName,
     qrCodeData,
     qrStatus,
-    deviceInfo: isConnected ? input.instanceName : null,
+    deviceInfo: isConnected
+      ? getEvolutionDeviceInfo(instanceResponse, input.instanceName)
+      : null,
     lastSeen: isConnected ? new Date() : null,
     apiPhoneNumber: null,
     apiMessagingLimit: null,
@@ -655,7 +748,7 @@ export async function sendWhatsAppTestMessage(
       method: "POST",
       body: JSON.stringify({
         number: normalizePhoneNumber(input.phoneNumber),
-        textMessage: { text },
+        text,
       }),
     },
   );

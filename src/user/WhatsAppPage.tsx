@@ -31,6 +31,12 @@ import UserLayout from "./layout/UserLayout";
 import { Card, CardContent } from "../client/components/ui/card";
 import { Button } from "../client/components/ui/button";
 import { Switch } from "../client/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../client/components/ui/dialog";
 import { useToast } from "../client/hooks/use-toast";
 import { cn } from "../client/utils";
 
@@ -224,6 +230,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEnabled, setWebhookEnabled] = useState(false);
   const [isSavingWebhook, setIsSavingWebhook] = useState(false);
+  const [isQrPreviewOpen, setIsQrPreviewOpen] = useState(false);
   const pollInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -315,6 +322,10 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     () => getQrImageSrc(qrState?.codeData ?? null),
     [qrState?.codeData],
   );
+  const connectedAccount =
+    qrState?.deviceInfo && !qrState.deviceInfo.startsWith("quicreply-")
+      ? qrState.deviceInfo
+      : null;
   const backendWebhookUrl = useMemo(() => {
     if (typeof window === "undefined") {
       return "/webhooks/evolution/whatsapp";
@@ -542,7 +553,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
 
   return (
     <UserLayout user={user}>
-      <div className="mx-auto w-full max-w-7xl min-w-0 space-y-5 overflow-hidden">
+      <div className="w-full min-w-0 space-y-5">
         {/* ── Page Header ── */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -746,8 +757,12 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                 <div className="px-5 py-4 space-y-0">
                   {[
                     {
-                      label: "Device info",
-                      value: workspaceState?.qr.deviceInfo || "—",
+                      label: "Connected account",
+                      value:
+                        connectedAccount ??
+                        (qrStatus === "connected"
+                          ? "Refresh to sync account"
+                          : "—"),
                     },
                     {
                       label: "Session ID",
@@ -786,11 +801,21 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                         className={cn("h-6 w-6 animate-spin", softTextClass)}
                       />
                     ) : qrImageSrc ? (
-                      <img
-                        alt="WhatsApp QR code"
-                        className="h-20 w-20 object-contain"
-                        src={qrImageSrc}
-                      />
+                      <button
+                        aria-label="Preview WhatsApp QR code"
+                        className="group relative rounded-lg border border-white/10 bg-white p-1.5 shadow-sm transition hover:scale-[1.03] hover:border-[#fe901d]/50 hover:shadow-[0_0_0_4px_rgba(254,144,29,0.12)] focus:outline-none focus:ring-2 focus:ring-[#fe901d] focus:ring-offset-2 focus:ring-offset-[#111827]"
+                        onClick={() => setIsQrPreviewOpen(true)}
+                        type="button"
+                      >
+                        <img
+                          alt="WhatsApp QR code"
+                          className="h-20 w-20 object-contain"
+                          src={qrImageSrc}
+                        />
+                        <span className="absolute inset-x-1 bottom-1 rounded bg-black/70 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                          Preview
+                        </span>
+                      </button>
                     ) : qrStatus === "connected" ? (
                       <div className="flex flex-col items-center gap-1.5 text-center text-emerald-600 dark:text-emerald-400 sm:flex-row sm:text-left">
                         <CheckCircle2 className="h-5 w-5 shrink-0" />
@@ -1518,6 +1543,32 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
           {/* /RIGHT SIDEBAR */}
         </div>
         {/* /Main Grid */}
+        <Dialog open={isQrPreviewOpen} onOpenChange={setIsQrPreviewOpen}>
+          <DialogContent className="w-[min(92vw,520px)] max-w-none border-white/10 bg-[#070b14] p-5 text-white shadow-2xl sm:rounded-2xl">
+            <div className="space-y-4 text-center">
+              <div>
+                <DialogTitle className="text-lg font-bold text-white">
+                  Scan WhatsApp QR
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-sm text-slate-300">
+                  Open WhatsApp &gt; Linked Devices &gt; Link a Device.
+                </DialogDescription>
+              </div>
+              <div className="mx-auto grid h-[min(76vw,420px)] w-[min(76vw,420px)] place-items-center rounded-2xl bg-white p-4">
+                {qrImageSrc ? (
+                  <img
+                    alt="WhatsApp QR code enlarged"
+                    className="h-full w-full object-contain"
+                    src={qrImageSrc}
+                  />
+                ) : null}
+              </div>
+              <p className="text-xs text-slate-400">
+                Click outside or press Escape to close.
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </UserLayout>
   );
