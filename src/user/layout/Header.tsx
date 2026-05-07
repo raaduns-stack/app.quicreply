@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { type AuthUser } from "wasp/auth";
 import { Bell, Megaphone, Receipt, Search } from "lucide-react";
 import {
@@ -14,22 +15,40 @@ import {
 } from "./layoutConstants";
 
 function HeaderSearch() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        buttonRef.current?.click();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
-    <div className="hidden w-full max-w-[380px] items-center rounded-full border border-[#ece8df] bg-white px-4 py-2.5 shadow-sm shadow-slate-200/50 dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none md:flex">
+    <button
+      ref={buttonRef}
+      type="button"
+      aria-label="Open quick search"
+      onClick={() => {
+        // TODO: open search modal/command palette
+      }}
+      className="hidden w-[200px] shrink-0 cursor-pointer items-center rounded-full border border-[#ece8df] bg-white px-4 py-2.5 shadow-sm shadow-slate-200/50 transition-colors hover:border-[#f3d2a5] hover:bg-[#fffaf3] dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none dark:hover:border-[#fe901d]/25 dark:hover:bg-white/5 lg:flex xl:w-[280px]"
+    >
       <Search
         className="mr-3 h-5 w-5 shrink-0 text-slate-400"
         strokeWidth={2}
       />
-      <input
-        aria-label="Quick Search"
-        className="min-w-0 flex-1 border-0 bg-transparent text-sm font-medium text-[#172033] outline-none placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
-        placeholder="Quick Search..."
-        type="search"
-      />
-      <span className="ml-3 rounded-full border border-[#ece8df] bg-white px-2.5 py-1 text-xs font-bold text-slate-400 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-slate-500">
+      <span className="min-w-0 flex-1 text-left text-sm font-medium text-slate-400 dark:text-slate-500">
+        Quick Search…
+      </span>
+      <span className="ml-3 rounded-md border border-[#ece8df] bg-[#f7f8fa] px-2 py-0.5 text-xs font-bold text-slate-400 dark:border-white/10 dark:bg-white/5 dark:text-slate-500">
         ⌘K
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -56,7 +75,7 @@ function NotificationDropdown() {
       <DropdownMenuTrigger asChild>
         <button
           aria-label="Notifications"
-          className="relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-[#ece8df] bg-white text-slate-500 outline-none transition-colors hover:border-[#f3d2a5] hover:bg-[#fffaf3] hover:text-[#fe901d] dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-300 dark:hover:border-[#fe901d]/25 dark:hover:bg-white/5 dark:hover:text-[#ffb84d]"
+          className="relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-[#ece8df] bg-white text-slate-500 outline-none transition-colors hover:border-[#f3d2a5] hover:bg-[#fffaf3] hover:text-[#fe901d] dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-300 dark:hover:border-[#fe901d]/25 dark:hover:bg-white/5 dark:hover:text-[#ffb84d]"
           type="button"
         >
           <Bell className="h-5 w-5" strokeWidth={1.9} />
@@ -69,7 +88,7 @@ function NotificationDropdown() {
         sideOffset={12}
       >
         <div className="flex items-center justify-between border-b border-[#eee7de] px-5 py-4 dark:border-white/10">
-          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-[#172033] dark:text-slate-50">
+          <h3 className="text-sm font-bold text-[#172033] dark:text-slate-50">
             Notifications
           </h3>
           <button
@@ -102,7 +121,7 @@ function NotificationDropdown() {
                   <p className="mt-1 text-sm leading-5 text-slate-500 dark:text-slate-400">
                     {update.body}
                   </p>
-                  <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+                  <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
                     {update.time}
                   </p>
                 </div>
@@ -111,7 +130,7 @@ function NotificationDropdown() {
           })}
         </div>
         <button
-          className="w-full cursor-pointer border-t border-[#eee7de] px-5 py-4 text-center text-sm font-bold uppercase tracking-[0.14em] text-[#344054] transition-colors hover:bg-[#fffaf3] dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/5"
+          className="w-full cursor-pointer border-t border-[#eee7de] px-5 py-4 text-center text-sm font-semibold text-[#344054] transition-colors hover:bg-[#fffaf3] dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/5"
           type="button"
         >
           View all updates
@@ -197,12 +216,11 @@ const Header = (props: {
           </button>
         </div>
 
-        <div className="hidden flex-1 justify-center lg:flex">
-          <HeaderSearch />
-        </div>
+        <div className="hidden flex-1 lg:flex" />
 
         {/* <!-- Right side items --> */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-2 lg:gap-3">
+          <HeaderSearch />
           <NotificationDropdown />
           <UserDropdown user={props.user} />
         </div>

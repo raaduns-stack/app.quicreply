@@ -56,12 +56,41 @@ model Organization {
   qrLastSeen                DateTime?
   qrStatusCheckedAt         DateTime?
   qrDeviceInfo              String?
+  evolutionInstanceName     String?
+  evolutionInstanceId       String?
+  qrLastError               String?
   apiPhoneNumber            String?
   apiMessagingLimit         String?
   settings                  Json?
   businessDescription       String?
   productsServices          String?
   firstAiMessage            String?
+  whatsappMessageLogs       WhatsAppMessageLog[]
+}
+
+model WhatsAppMessageLog {
+  id                        String          @id @default(uuid())
+  createdAt                 DateTime        @default(now())
+  updatedAt                 DateTime        @updatedAt
+
+  organization              Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId            String
+
+  instanceName              String?
+  direction                 String
+  from                      String?
+  to                        String?
+  pushName                  String?
+  messageType               String?
+  text                      String?
+  status                    String?
+  source                    String?
+  providerEvent             String?
+  providerMessageId         String?
+  rawPayload                Json?
+
+  @@index([organizationId, createdAt])
+  @@index([instanceName, createdAt])
 }
 
 

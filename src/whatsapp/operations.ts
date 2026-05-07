@@ -2,10 +2,14 @@ import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
 import {
-  getMockWhatsAppQrStatus,
-  startMockWhatsAppQrSession,
+  disconnectWhatsAppQrSession,
+  fetchWhatsAppMessageLogs,
+  refreshWhatsAppQrSessionStatus,
+  sendWhatsAppTestMessage as sendWhatsAppTestMessageThroughProvider,
+  startWhatsAppQrSession,
+  type WhatsAppMessageLog,
   type WhatsAppQrStatus,
-} from "./mockQr";
+} from "./provider";
 
 const organizationSelect = {
   id: true,
@@ -20,8 +24,12 @@ const organizationSelect = {
   qrLastSeen: true,
   qrStatusCheckedAt: true,
   qrDeviceInfo: true,
+  evolutionInstanceName: true,
+  evolutionInstanceId: true,
+  qrLastError: true,
   apiPhoneNumber: true,
   apiMessagingLimit: true,
+  settings: true,
   name: true,
   flow: true,
 } as const;
@@ -39,8 +47,12 @@ type OrganizationRecord = {
   qrLastSeen: Date | null;
   qrStatusCheckedAt: Date | null;
   qrDeviceInfo: string | null;
+  evolutionInstanceName: string | null;
+  evolutionInstanceId: string | null;
+  qrLastError: string | null;
   apiPhoneNumber: string | null;
   apiMessagingLimit: string | null;
+  settings: unknown | null;
   name: string | null;
   flow: string | null;
 };
@@ -56,11 +68,16 @@ export type WhatsAppWorkspaceState = {
     deviceInfo: string | null;
     lastSeen: string | null;
     checkedAt: string | null;
+    lastError: string | null;
   };
   api: {
     status: "none" | "pending" | "approved";
     phoneNumber: string | null;
     messagingLimit: string | null;
+  };
+  webhook: {
+    inboundUrl: string | null;
+    enabled: boolean;
   };
 };
 
@@ -70,6 +87,16 @@ const updateJenniferArgsSchema = z.object({
 
 const completeOfficialApiSetupArgsSchema = z.object({
   apiPhoneNumber: z.string().trim().optional(),
+});
+
+const sendWhatsAppTestMessageArgsSchema = z.object({
+  phoneNumber: z.string().trim().min(8),
+  message: z.string().trim().min(1).max(1000),
+});
+
+const updateWhatsAppWebhookSettingsArgsSchema = z.object({
+  inboundUrl: z.string().trim().max(2000).optional(),
+  enabled: z.boolean(),
 });
 
 function ensureUserId(context: any) {
@@ -116,6 +143,63 @@ function normalizeWhatsAppMode(
   return "qr";
 }
 
+function normalizeSettings(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return { ...(value as Record<string, unknown>) };
+}
+
+function getWebhookSettings(settings: unknown) {
+  const whatsappWebhook = normalizeSettings(settings).whatsappWebhook;
+  const record =
+    whatsappWebhook &&
+    typeof whatsappWebhook === "object" &&
+    !Array.isArray(whatsappWebhook)
+      ? (whatsappWebhook as Record<string, unknown>)
+      : {};
+  const inboundUrl =
+    typeof record.inboundUrl === "string" && record.inboundUrl.trim()
+      ? record.inboundUrl
+      : null;
+
+  return {
+    inboundUrl,
+    enabled: record.enabled === true,
+  };
+}
+
+function mergeWebhookSettings(
+  settings: unknown,
+  args: z.infer<typeof updateWhatsAppWebhookSettingsArgsSchema>,
+) {
+  const nextSettings = normalizeSettings(settings);
+
+  nextSettings.whatsappWebhook = {
+    inboundUrl: args.inboundUrl?.trim() || null,
+    enabled: args.enabled,
+  };
+
+  return nextSettings;
+}
+
+function getConnectedInstanceName(organization: OrganizationRecord | null) {
+  if (!organization?.qrConnected) {
+    return null;
+  }
+
+  const qrStatus = normalizeQrStatus(
+    organization.qrStatus ?? (organization.qrConnected ? "connected" : null),
+  );
+
+  if (qrStatus !== "connected") {
+    return null;
+  }
+
+  return organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
+}
+
 function toWorkspaceState(
   organization: OrganizationRecord | null,
 ): WhatsAppWorkspaceState {
@@ -138,12 +222,14 @@ function toWorkspaceState(
       deviceInfo: organization?.qrDeviceInfo ?? null,
       lastSeen: organization?.qrLastSeen?.toISOString() ?? null,
       checkedAt: organization?.qrStatusCheckedAt?.toISOString() ?? null,
+      lastError: organization?.qrLastError ?? null,
     },
     api: {
       status: normalizeApiStatus(organization?.apiStatus),
       phoneNumber: organization?.apiPhoneNumber ?? null,
       messagingLimit: organization?.apiMessagingLimit ?? null,
     },
+    webhook: getWebhookSettings(organization?.settings),
   };
 }
 
@@ -178,6 +264,58 @@ async function upsertOrganization(
   });
 }
 
+function buildEvolutionInstanceName(organizationId: string) {
+  return `quicreply-${organizationId}`.toLowerCase();
+}
+
+async function ensureOrganizationForUser(userId: string) {
+  const organization = await findOrganization(userId);
+  if (organization) {
+    return organization;
+  }
+
+  return upsertOrganization(userId, {});
+}
+
+function toWhatsAppMessageLogDto(log: {
+  id: string;
+  direction: string;
+  from: string | null;
+  to: string | null;
+  pushName: string | null;
+  messageType: string | null;
+  text: string | null;
+  createdAt: Date;
+  status: string | null;
+  source: string | null;
+}): WhatsAppMessageLog {
+  return {
+    id: log.id,
+    direction: log.direction === "outbound" ? "outbound" : "inbound",
+    from: log.from,
+    to: log.to,
+    pushName: log.pushName,
+    messageType: log.messageType,
+    text: log.text || "Unsupported message type",
+    timestamp: log.createdAt.toISOString(),
+    status: log.status,
+    source: log.source,
+  };
+}
+
+async function getStoredWhatsAppMessageLogs(
+  organizationId: string,
+  limit = 20,
+): Promise<WhatsAppMessageLog[]> {
+  const logs = await prisma.whatsAppMessageLog.findMany({
+    where: { organizationId },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(Math.max(limit, 1), 50),
+  });
+
+  return logs.map(toWhatsAppMessageLogDto);
+}
+
 export const getWhatsAppWorkspaceState = async (
   _args: unknown,
   context: any,
@@ -186,14 +324,47 @@ export const getWhatsAppWorkspaceState = async (
   return getWorkspaceStateForUser(userId);
 };
 
+export const getWhatsAppMessageLogs = async (
+  _args: unknown,
+  context: any,
+): Promise<WhatsAppMessageLog[]> => {
+  const userId = ensureUserId(context);
+  const organization = await findOrganization(userId);
+
+  if (!organization) {
+    return [];
+  }
+
+  const storedLogs = await getStoredWhatsAppMessageLogs(organization.id);
+  const instanceName = getConnectedInstanceName(organization);
+
+  if (!instanceName) {
+    return storedLogs;
+  }
+
+  try {
+    const providerLogs = await fetchWhatsAppMessageLogs({
+      instanceName,
+      limit: 20,
+    });
+
+    return providerLogs.length > 0 ? providerLogs : storedLogs;
+  } catch {
+    return storedLogs;
+  }
+};
+
 export const startWhatsAppQrHandshake = async (
   _args: unknown,
   context: any,
 ): Promise<WhatsAppWorkspaceState> => {
   const userId = ensureUserId(context);
-  const organization = await findOrganization(userId);
+  const organization = await ensureOrganizationForUser(userId);
+  const instanceName =
+    organization.evolutionInstanceName ??
+    buildEvolutionInstanceName(organization.id);
 
-  const qrResponse = await startMockWhatsAppQrSession();
+  const qrResponse = await startWhatsAppQrSession({ instanceName });
 
   const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode: organization?.apiStatus === "approved" ? "both" : "qr",
@@ -204,6 +375,15 @@ export const startWhatsAppQrHandshake = async (
     qrLastSeen: qrResponse.lastSeen,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: qrResponse.deviceInfo,
+    evolutionInstanceName:
+      qrResponse.evolutionInstanceName ??
+      organization.evolutionInstanceName ??
+      undefined,
+    evolutionInstanceId:
+      qrResponse.evolutionInstanceId ??
+      organization.evolutionInstanceId ??
+      undefined,
+    qrLastError: qrResponse.errorMessage ?? null,
     apiPhoneNumber:
       qrResponse.apiPhoneNumber ?? organization?.apiPhoneNumber ?? undefined,
     apiMessagingLimit:
@@ -226,7 +406,8 @@ export const refreshWhatsAppQrStatus = async (
     return toWorkspaceState(organization);
   }
 
-  const qrResponse = await getMockWhatsAppQrStatus(organization.qrSessionId);
+  const instanceName = organization.qrSessionId;
+  const qrResponse = await refreshWhatsAppQrSessionStatus({ instanceName });
   const nextQrStatus = qrResponse.qrStatus;
   const isConnected = nextQrStatus === "connected";
   const isTerminalWithoutQr =
@@ -246,6 +427,13 @@ export const refreshWhatsAppQrStatus = async (
     qrLastSeen: qrResponse.lastSeen ?? organization.qrLastSeen,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: qrResponse.deviceInfo ?? organization.qrDeviceInfo,
+    evolutionInstanceName:
+      qrResponse.evolutionInstanceName ??
+      organization.evolutionInstanceName ??
+      instanceName,
+    evolutionInstanceId:
+      qrResponse.evolutionInstanceId ?? organization.evolutionInstanceId,
+    qrLastError: qrResponse.errorMessage ?? null,
     apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization.apiPhoneNumber,
     apiMessagingLimit:
       qrResponse.apiMessagingLimit ?? organization.apiMessagingLimit,
@@ -271,6 +459,70 @@ export const updateJenniferStatus = async (
   return toWorkspaceState(updatedOrganization);
 };
 
+export const sendWhatsAppTestMessage = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<{ success: true }> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    sendWhatsAppTestMessageArgsSchema,
+    rawArgs,
+  );
+  const organization = await findOrganization(userId);
+  const instanceName = getConnectedInstanceName(organization);
+
+  if (!instanceName) {
+    throw new HttpError(400, "Connect QR before sending a test message.");
+  }
+
+  const result = await sendWhatsAppTestMessageThroughProvider({
+    instanceName,
+    phoneNumber: args.phoneNumber,
+    message: args.message,
+  });
+
+  await prisma.whatsAppMessageLog.create({
+    data: {
+      organizationId: organization!.id,
+      instanceName,
+      direction: "outbound",
+      to: args.phoneNumber,
+      messageType: "conversation",
+      text: args.message,
+      status: "SENT",
+      source: "app",
+      providerEvent: "test_message",
+    },
+  });
+
+  return result;
+};
+
+export const updateWhatsAppWebhookSettings = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<WhatsAppWorkspaceState> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    updateWhatsAppWebhookSettingsArgsSchema,
+    rawArgs,
+  );
+
+  if (args.enabled && !args.inboundUrl?.trim()) {
+    throw new HttpError(
+      400,
+      "Add the n8n webhook URL before enabling forwarding.",
+    );
+  }
+
+  const organization = await ensureOrganizationForUser(userId);
+  const updatedOrganization = await upsertOrganization(userId, {
+    settings: mergeWebhookSettings(organization.settings, args),
+  });
+
+  return toWorkspaceState(updatedOrganization);
+};
+
 export const disconnectWhatsAppQr = async (
   _args: unknown,
   context: any,
@@ -280,6 +532,12 @@ export const disconnectWhatsAppQr = async (
 
   if (!organization) {
     return toWorkspaceState(null);
+  }
+
+  const instanceName =
+    organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
+  if (instanceName) {
+    await disconnectWhatsAppQrSession({ instanceName });
   }
 
   const nextMode =
@@ -294,6 +552,7 @@ export const disconnectWhatsAppQr = async (
     qrLastSeen: null,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: null,
+    qrLastError: null,
   });
 
   return toWorkspaceState(updatedOrganization);

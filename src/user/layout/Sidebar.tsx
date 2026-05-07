@@ -61,13 +61,13 @@ const navSections: NavSection[] = [
   },
   {
     label: "Messages",
-    items: [{ name: "Inbox", icon: Inbox, disabled: true }],
+    items: [{ name: "Inbox", href: "/inbox", icon: Inbox }],
   },
   {
     label: "Customers",
     items: [
       { name: "Contacts", href: "/contacts", icon: Users },
-      { name: "Pipeline", icon: Workflow, disabled: true },
+      { name: "Pipeline", href: "/pipeline", icon: Workflow },
     ],
   },
   {
@@ -103,11 +103,11 @@ const navGroups: Array<NavGroup & { section: string }> = [
 const trailingSections: NavSection[] = [
   {
     label: "Insights",
-    items: [{ name: "Analytics", icon: BarChart3, disabled: true }],
+    items: [{ name: "Analytics", href: "/analytics", icon: BarChart3 }],
   },
   {
     label: "Team",
-    items: [{ name: "Team", icon: Users, disabled: true }],
+    items: [{ name: "Team", href: "/team", icon: Users }],
   },
   {
     label: "System",
@@ -119,13 +119,13 @@ const trailingSections: NavSection[] = [
 ];
 
 const itemClassName =
-  "group relative flex w-full items-center gap-3 rounded-xl border-l-[3px] px-4 py-3 text-sm font-semibold transition-all duration-200";
+  "group relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200";
 
 const activeItemClassName =
-  "border-l-[#fe901d] bg-[#fff3e1] text-[#c96a00] dark:bg-[rgba(254,144,29,0.14)] dark:text-[#ffb84d]";
+  "bg-[#fff3e1] text-[#c96a00] dark:bg-[rgba(254,144,29,0.14)] dark:text-[#ffb84d]";
 
 const idleItemClassName =
-  "border-l-transparent text-[#6b7280] hover:bg-[#f8f9fa] hover:text-[#182235] dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100";
+  "text-[#6b7280] hover:bg-[#f8f9fa] hover:text-[#182235] dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100";
 
 function SectionLabel({
   children,
@@ -238,7 +238,7 @@ function SidebarGroup({
 }) {
   const location = useLocation();
   const isGroupActive = group.items.some(
-    (item) => item.href && location.pathname.startsWith(item.href),
+    (item) => item.href && (location.pathname === item.href || location.pathname.startsWith(item.href + "/")),
   );
   const [isOpen, setIsOpen] = useState(isGroupActive);
   const Icon = group.icon;
@@ -309,6 +309,7 @@ function SidebarGroup({
                   </button>
                 ) : (
                   <NavLink
+                    end
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-semibold transition-colors",

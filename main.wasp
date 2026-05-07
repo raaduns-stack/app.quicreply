@@ -200,10 +200,22 @@ page ContactsPage {
   component: import ContactsPage from "@src/user/ContactsPage"
 }
 
+route ContactProfileRoute { path: "/contacts/:contactId", to: ContactProfilePage }
+page ContactProfilePage {
+  authRequired: true,
+  component: import ContactProfilePage from "@src/user/ContactProfilePage"
+}
+
 route CampaignsRoute { path: "/campaigns", to: CampaignsPage }
 page CampaignsPage {
   authRequired: true,
   component: import CampaignsPage from "@src/user/CampaignsPage"
+}
+
+route InboxRoute { path: "/inbox", to: InboxPage }
+page InboxPage {
+  authRequired: true,
+  component: import InboxPage from "@src/user/InboxPage"
 }
 
 route SettingsRoute { path: "/settings", to: SettingsPage }
@@ -212,60 +224,118 @@ page SettingsPage {
   component: import SettingsPage from "@src/user/SettingsPage"
 }
 
+route TeamRoute { path: "/team", to: TeamPage }
+page TeamPage {
+  authRequired: true,
+  component: import TeamPage from "@src/user/TeamPage"
+}
+
+route PipelineRoute { path: "/pipeline", to: PipelinePage }
+page PipelinePage {
+  authRequired: true,
+  component: import PipelinePage from "@src/user/PipelinePage"
+}
+
 route AccountRoute { path: "/account", to: AccountPage }
 page AccountPage {
   authRequired: true,
   component: import Account from "@src/user/AccountPage"
 }
 
+route AnalyticsRoute { path: "/analytics", to: AnalyticsPage }
+page AnalyticsPage {
+  authRequired: true,
+  component: import AnalyticsPage from "@src/user/AnalyticsPage"
+}
+
 query getPaginatedUsers {
   fn: import { getPaginatedUsers } from "@src/user/operations",
-  entities: [User]
+  entities: [User],
+  auth: true
 }
 
 action updateIsUserAdminById {
   fn: import { updateIsUserAdminById } from "@src/user/operations",
-  entities: [User]
+  entities: [User],
+  auth: true
 }
 
 query getOnboardingState {
   fn: import { getOnboardingState } from "@src/user/onboarding/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
 }
 
 action saveOnboardingProgress {
   fn: import { saveOnboardingProgress } from "@src/user/onboarding/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
 }
 
 query getWhatsAppWorkspaceState {
   fn: import { getWhatsAppWorkspaceState } from "@src/whatsapp/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
+}
+
+query getWhatsAppMessageLogs {
+  fn: import { getWhatsAppMessageLogs } from "@src/whatsapp/operations",
+  entities: [User, Organization],
+  auth: true
 }
 
 action startWhatsAppQrHandshake {
   fn: import { startWhatsAppQrHandshake } from "@src/whatsapp/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
 }
 
 action refreshWhatsAppQrStatus {
   fn: import { refreshWhatsAppQrStatus } from "@src/whatsapp/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
 }
 
 action updateJenniferStatus {
   fn: import { updateJenniferStatus } from "@src/whatsapp/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
+}
+
+action sendWhatsAppTestMessage {
+  fn: import { sendWhatsAppTestMessage } from "@src/whatsapp/operations",
+  entities: [User, Organization],
+  auth: true
+}
+
+action updateWhatsAppWebhookSettings {
+  fn: import { updateWhatsAppWebhookSettings } from "@src/whatsapp/operations",
+  entities: [User, Organization],
+  auth: true
 }
 
 action disconnectWhatsAppQr {
   fn: import { disconnectWhatsAppQr } from "@src/whatsapp/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
 }
 
 action completeOfficialApiSetup {
   fn: import { completeOfficialApiSetup } from "@src/whatsapp/operations",
-  entities: [User, Organization]
+  entities: [User, Organization],
+  auth: true
+}
+
+api evolutionWhatsAppWebhook {
+  fn: import { evolutionWhatsAppWebhook } from "@src/whatsapp/webhook",
+  httpRoute: (POST, "/webhooks/evolution/whatsapp"),
+  auth: false
+}
+
+api n8nWhatsAppReplyWebhook {
+  fn: import { n8nWhatsAppReplyWebhook } from "@src/whatsapp/webhook",
+  httpRoute: (POST, "/webhooks/n8n/whatsapp/reply"),
+  auth: false
 }
 //#endregion
 
@@ -282,12 +352,14 @@ page CheckoutResultPage {
 
 query getCustomerPortalUrl {
   fn: import { getCustomerPortalUrl } from  "@src/payment/operations",
-  entities: [User]
+  entities: [User],
+  auth: true
 }
 
 action generateCheckoutSession {
   fn: import { generateCheckoutSession } from "@src/payment/operations",
-  entities: [User]
+  entities: [User],
+  auth: true
 }
 
 api paymentsWebhook {
@@ -303,7 +375,8 @@ api paymentsWebhook {
 //#region Analytics
 query getDailyStats {
   fn: import { getDailyStats } from "@src/analytics/operations",
-  entities: [User, DailyStats]
+  entities: [User, DailyStats],
+  auth: true
 }
 
 job dailyStatsJob {
