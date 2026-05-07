@@ -85,6 +85,12 @@ const updateJenniferArgsSchema = z.object({
   isAiActive: z.boolean(),
 });
 
+const startWhatsAppQrHandshakeArgsSchema = z
+  .object({
+    forceFresh: z.boolean().optional(),
+  })
+  .optional();
+
 const completeOfficialApiSetupArgsSchema = z.object({
   apiPhoneNumber: z.string().trim().optional(),
 });
@@ -268,6 +274,58 @@ function buildEvolutionInstanceName(organizationId: string) {
   return `quicreply-${organizationId}`.toLowerCase();
 }
 
+function getErrorRecord(error: unknown): Record<string, unknown> | null {
+  return error && typeof error === "object"
+    ? (error as Record<string, unknown>)
+    : null;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "WhatsApp provider request failed. Please try again.";
+}
+
+function getSafeOperationErrorStatus(error: unknown) {
+  const record = getErrorRecord(error);
+
+  for (const candidate of [record?.statusCode, record?.status]) {
+    if (typeof candidate === "number") {
+      return candidate === 401 || candidate === 403 ? 502 : candidate;
+    }
+
+    if (typeof candidate === "string" && /^\d+$/.test(candidate)) {
+      const status = Number(candidate);
+      return status === 401 || status === 403 ? 502 : status;
+    }
+  }
+
+  return 502;
+}
+
+async function markQrProviderFailure(
+  userId: string,
+  organization: OrganizationRecord,
+  message: string,
+) {
+  return upsertOrganization(userId, {
+    whatsappMode: organization.apiStatus === "approved" ? "both" : "qr",
+    qrConnected: false,
+    qrStatus: "failed",
+    qrCodeData: null,
+    qrSessionId:
+      organization.qrSessionId ?? organization.evolutionInstanceName ?? null,
+    qrLastSeen: organization.qrLastSeen,
+    qrStatusCheckedAt: new Date(),
+    qrDeviceInfo: organization.qrDeviceInfo,
+    evolutionInstanceName: organization.evolutionInstanceName ?? undefined,
+    evolutionInstanceId: organization.evolutionInstanceId ?? undefined,
+    qrLastError: message,
+  });
+}
+
 async function ensureOrganizationForUser(userId: string) {
   const organization = await findOrganization(userId);
   if (organization) {
@@ -355,16 +413,31 @@ export const getWhatsAppMessageLogs = async (
 };
 
 export const startWhatsAppQrHandshake = async (
-  _args: unknown,
+  rawArgs: unknown,
   context: any,
 ): Promise<WhatsAppWorkspaceState> => {
   const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    startWhatsAppQrHandshakeArgsSchema,
+    rawArgs,
+  );
   const organization = await ensureOrganizationForUser(userId);
   const instanceName =
     organization.evolutionInstanceName ??
     buildEvolutionInstanceName(organization.id);
 
-  const qrResponse = await startWhatsAppQrSession({ instanceName });
+  let qrResponse;
+  try {
+    if (args?.forceFresh) {
+      await disconnectWhatsAppQrSession({ instanceName });
+    }
+
+    qrResponse = await startWhatsAppQrSession({ instanceName });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    await markQrProviderFailure(userId, organization, message);
+    throw new HttpError(getSafeOperationErrorStatus(error), message);
+  }
 
   const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode: organization?.apiStatus === "approved" ? "both" : "qr",
@@ -407,7 +480,14 @@ export const refreshWhatsAppQrStatus = async (
   }
 
   const instanceName = organization.qrSessionId;
-  const qrResponse = await refreshWhatsAppQrSessionStatus({ instanceName });
+  let qrResponse;
+  try {
+    qrResponse = await refreshWhatsAppQrSessionStatus({ instanceName });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    await markQrProviderFailure(userId, organization, message);
+    throw new HttpError(getSafeOperationErrorStatus(error), message);
+  }
   const nextQrStatus = qrResponse.qrStatus;
   const isConnected = nextQrStatus === "connected";
   const isTerminalWithoutQr =

@@ -40,6 +40,8 @@ type EvolutionProviderInput = {
 
 const EVOLUTION_INTEGRATION = "WHATSAPP-BAILEYS";
 const EVOLUTION_QR_RETRY_DELAY_MS = 1_500;
+const EVOLUTION_AUTH_ERROR_MESSAGE =
+  "Evolution API rejected the request. Please verify EVOLUTION_API_KEY.";
 
 const QR_IMAGE_KEYS = [
   "base64",
@@ -53,13 +55,7 @@ const QR_IMAGE_KEYS = [
   "url",
 ];
 
-const QR_PAYLOAD_KEYS = [
-  "code",
-  "qr",
-  "qrcode",
-  "qrCode",
-  "pairingCode",
-];
+const QR_PAYLOAD_KEYS = ["code", "qr", "qrcode", "qrCode", "pairingCode"];
 
 function getWhatsAppProvider() {
   return env.WHATSAPP_PROVIDER ?? "mock";
@@ -136,7 +132,13 @@ function getHttpErrorStatus(error: unknown) {
     return null;
   }
 
-  for (const candidate of [record.statusCode, record.status, record.code]) {
+  for (const candidate of [
+    record.providerStatus,
+    record.evolutionStatus,
+    record.statusCode,
+    record.status,
+    record.code,
+  ]) {
     if (typeof candidate === "number") {
       return candidate;
     }
@@ -147,6 +149,25 @@ function getHttpErrorStatus(error: unknown) {
   }
 
   return null;
+}
+
+function getSafeEvolutionErrorStatus(status: number) {
+  if (status === 401 || status === 403 || status >= 500) {
+    return 502;
+  }
+
+  return status;
+}
+
+function getSafeEvolutionErrorMessage(status: number, body: unknown) {
+  if (status === 401 || status === 403) {
+    return EVOLUTION_AUTH_ERROR_MESSAGE;
+  }
+
+  return (
+    getEvolutionMessage(body) ??
+    `Evolution API request failed with status ${status}.`
+  );
 }
 
 function looksLikeImageSource(value: string) {
@@ -240,15 +261,18 @@ async function evolutionRequest<T>(
   const body = text ? safelyParseJson(text) : null;
 
   if (!response.ok) {
-    const message =
-      getEvolutionMessage(body) ??
-      `Evolution API request failed with status ${response.status}.`;
+    const message = getSafeEvolutionErrorMessage(response.status, body);
     const error = new HttpError(
-      response.status >= 500 ? 502 : response.status,
+      getSafeEvolutionErrorStatus(response.status),
       message,
-    ) as Error & { status?: number; statusCode?: number };
-    error.status = response.status;
-    error.statusCode = response.status;
+    ) as Error & {
+      provider?: "evolution";
+      providerStatus?: number;
+      evolutionStatus?: number;
+    };
+    error.provider = "evolution";
+    error.providerStatus = response.status;
+    error.evolutionStatus = response.status;
     throw error;
   }
 
@@ -526,9 +550,10 @@ export async function startWhatsAppQrSession(
     apiMessagingLimit: null,
     evolutionInstanceName: input.instanceName,
     evolutionInstanceId: extractEvolutionInstanceId(createdInstance),
-    errorMessage: qrCodeData
-      ? null
-      : "Evolution instance is preparing the QR code. Keep this page open; we will refresh automatically.",
+    errorMessage:
+      qrStatus === "pending" && !qrCodeData
+        ? "Evolution instance is preparing the QR code. Keep this page open; we will refresh automatically."
+        : null,
   };
 }
 
@@ -644,9 +669,7 @@ export async function sendWhatsAppTextMessage(
   return sendWhatsAppTestMessage(input);
 }
 
-async function ignoreMissingEvolutionInstance(
-  request: () => Promise<unknown>,
-) {
+async function ignoreMissingEvolutionInstance(request: () => Promise<unknown>) {
   try {
     await request();
   } catch (error) {

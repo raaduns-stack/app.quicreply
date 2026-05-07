@@ -19,12 +19,14 @@ import {
   Target,
   Waypoints,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
 import {
   getOnboardingState,
+  refreshWhatsAppQrStatus,
   saveOnboardingProgress,
+  startWhatsAppQrHandshake,
   useQuery,
 } from "wasp/client/operations";
 import { routes } from "wasp/client/router";
@@ -316,6 +318,44 @@ function getTopbarTitle(step: number) {
   }
 }
 
+type OnboardingQrStatus =
+  | "disconnected"
+  | "pending"
+  | "connected"
+  | "expired"
+  | "failed";
+
+type OnboardingQrState = {
+  status: OnboardingQrStatus;
+  connected: boolean;
+  codeData: string | null;
+  sessionId: string | null;
+  deviceInfo: string | null;
+  lastSeen: string | null;
+  checkedAt: string | null;
+  lastError: string | null;
+};
+
+type WhatsAppWorkspaceState = {
+  qr: OnboardingQrState;
+};
+
+function getQrImageSrc(codeData: string | null) {
+  if (!codeData) {
+    return null;
+  }
+
+  if (codeData.startsWith("data:image")) {
+    return codeData;
+  }
+
+  if (/^https?:\/\//i.test(codeData)) {
+    return codeData;
+  }
+
+  return `data:image/png;base64,${codeData}`;
+}
+
 export default function OnboardingPage({ user }: { user: AuthUser }) {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -323,7 +363,13 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [isSavingStep, setIsSavingStep] = useState(false);
   const [showQrFlow, setShowQrFlow] = useState(false);
+  const [onboardingQrState, setOnboardingQrState] =
+    useState<OnboardingQrState | null>(null);
+  const [isStartingQr, setIsStartingQr] = useState(false);
+  const [isRefreshingQr, setIsRefreshingQr] = useState(false);
   const [showTrainingOverlay, setShowTrainingOverlay] = useState(false);
+  const qrPollInFlightRef = useRef(false);
+  const qrCompletionHandledRef = useRef(false);
   const isOnboardingCompleted =
     (user as AuthUser & { onboardingCompleted?: boolean })
       .onboardingCompleted === true;
@@ -397,18 +443,36 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       isAiActive: data.organization.isAiActive ?? defaultValues.isAiActive,
     });
 
-    setShowQrFlow(nextStep === 4 && Boolean(data.organization.qrConnected));
+    const existingQrConnected = Boolean(data.organization.qrConnected);
+    setOnboardingQrState(
+      existingQrConnected
+        ? {
+            status: "connected",
+            connected: true,
+            codeData: null,
+            sessionId: null,
+            deviceInfo: data.organization.name ?? null,
+            lastSeen: null,
+            checkedAt: null,
+            lastError: null,
+          }
+        : null,
+    );
+    qrCompletionHandledRef.current = existingQrConnected;
+    setShowQrFlow(nextStep === 4 && existingQrConnected);
   }, [data, form]);
 
   async function persistStep(
     step: number,
     complete = false,
     validationStep = step,
+    overrides: Partial<OnboardingFormValues> = {},
   ) {
     setIsSavingStep(true);
     try {
       await saveOnboardingProgress({
         ...form.getValues(),
+        ...overrides,
         step,
         validationStep,
         complete,
@@ -440,10 +504,139 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
     setCurrentStep(nextStep);
   }
 
+  async function handleQrConnected(nextQrState = onboardingQrState) {
+    if (qrCompletionHandledRef.current && currentStep === 5) {
+      return true;
+    }
+
+    qrCompletionHandledRef.current = true;
+    form.setValue("whatsappMode", "qr", { shouldDirty: true });
+    form.setValue("qrConnected", true, { shouldDirty: true });
+    form.setValue("apiStatus", "none", { shouldDirty: true });
+
+    const saved = await persistStep(5, false, 4, {
+      whatsappMode: "qr",
+      qrConnected: true,
+      apiStatus: "none",
+    });
+
+    if (!saved) {
+      qrCompletionHandledRef.current = false;
+      return false;
+    }
+
+    if (nextQrState) {
+      setOnboardingQrState(nextQrState);
+    }
+
+    toast({
+      title: "WhatsApp connected",
+      description: "Your instant WhatsApp engine is ready.",
+    });
+    setShowQrFlow(false);
+    setCurrentStep(5);
+    return true;
+  }
+
+  async function startOnboardingQrHandshake() {
+    setIsStartingQr(true);
+    qrCompletionHandledRef.current = false;
+
+    try {
+      const nextState = (await startWhatsAppQrHandshake({
+        forceFresh: true,
+      })) as WhatsAppWorkspaceState;
+      setOnboardingQrState(nextState.qr);
+      setShowQrFlow(true);
+
+      if (nextState.qr.status === "connected" || nextState.qr.connected) {
+        await handleQrConnected(nextState.qr);
+        return;
+      }
+
+      toast({
+        title: nextState.qr.codeData
+          ? "QR ready to scan"
+          : "QR session started",
+        description: nextState.qr.codeData
+          ? "Open WhatsApp > Linked Devices > Link a Device."
+          : "Evolution is preparing the QR. Refresh in a moment.",
+      });
+    } catch (err: any) {
+      setOnboardingQrState((current) => ({
+        status: "failed",
+        connected: false,
+        codeData: null,
+        sessionId: current?.sessionId ?? null,
+        deviceInfo: current?.deviceInfo ?? null,
+        lastSeen: current?.lastSeen ?? null,
+        checkedAt: current?.checkedAt ?? null,
+        lastError: err?.message || "Could not start QR session.",
+      }));
+      toast({
+        variant: "destructive",
+        title: "Could not start WhatsApp QR",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setIsStartingQr(false);
+    }
+  }
+
+  async function refreshOnboardingQrStatus(showToast = true) {
+    setIsRefreshingQr(true);
+
+    try {
+      const nextState = (await refreshWhatsAppQrStatus(
+        {},
+      )) as WhatsAppWorkspaceState;
+      setOnboardingQrState(nextState.qr);
+
+      if (nextState.qr.status === "connected" || nextState.qr.connected) {
+        await handleQrConnected(nextState.qr);
+        return;
+      }
+
+      if (showToast) {
+        toast({
+          title: "QR status refreshed",
+          description: nextState.qr.codeData
+            ? "Scan the latest QR code to finish linking."
+            : "Evolution is still preparing the QR.",
+        });
+      }
+    } catch (err: any) {
+      setOnboardingQrState((current) =>
+        current
+          ? {
+              ...current,
+              status: "failed",
+              lastError: err?.message || "Could not refresh QR status.",
+            }
+          : current,
+      );
+      if (showToast) {
+        toast({
+          variant: "destructive",
+          title: "Could not refresh QR status",
+          description: err?.message || "Please try again.",
+        });
+      }
+    } finally {
+      setIsRefreshingQr(false);
+    }
+  }
+
   async function handleWhatsappPrimaryAction() {
     if (watchedValues.whatsappMode === "api") {
+      form.setValue("whatsappMode", "api", { shouldDirty: true });
       form.setValue("apiStatus", "pending", { shouldDirty: true });
-      const saved = await persistStep(4, false);
+      form.setValue("qrConnected", false, { shouldDirty: true });
+      const saved = await persistStep(4, false, 4, {
+        whatsappMode: "api",
+        apiStatus: "pending",
+        qrConnected: false,
+      });
       if (!saved) {
         return;
       }
@@ -451,24 +644,75 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       return;
     }
 
-    form.setValue("qrConnected", true, { shouldDirty: true });
-    setShowQrFlow(true);
-  }
-
-  async function handleQrComplete() {
-    form.setValue("qrConnected", true, { shouldDirty: true });
+    form.setValue("whatsappMode", "qr", { shouldDirty: true });
     form.setValue("apiStatus", "none", { shouldDirty: true });
-    const saved = await persistStep(5, false, 4);
+    form.setValue("qrConnected", false, { shouldDirty: true });
+    const saved = await persistStep(4, false, 4, {
+      whatsappMode: "qr",
+      apiStatus: "none",
+      qrConnected: false,
+    });
     if (!saved) {
       return;
     }
-    toast({
-      title: "QR connected successfully",
-      description: "Your instant revenue engine is ready.",
-    });
-    setShowQrFlow(false);
-    setCurrentStep(5);
+
+    setShowQrFlow(true);
+    await startOnboardingQrHandshake();
   }
+
+  useEffect(() => {
+    if (
+      !showQrFlow ||
+      onboardingQrState?.status !== "pending" ||
+      !onboardingQrState.sessionId
+    ) {
+      return;
+    }
+
+    let isCancelled = false;
+    const intervalId = window.setInterval(async () => {
+      if (qrPollInFlightRef.current) {
+        return;
+      }
+
+      qrPollInFlightRef.current = true;
+      try {
+        const nextState = (await refreshWhatsAppQrStatus(
+          {},
+        )) as WhatsAppWorkspaceState;
+        if (isCancelled) {
+          return;
+        }
+
+        setOnboardingQrState(nextState.qr);
+        if (
+          (nextState.qr.status === "connected" || nextState.qr.connected) &&
+          !qrCompletionHandledRef.current
+        ) {
+          await handleQrConnected(nextState.qr);
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          setOnboardingQrState((current) =>
+            current
+              ? {
+                  ...current,
+                  status: "failed",
+                  lastError: err?.message || "Could not refresh QR status.",
+                }
+              : current,
+          );
+        }
+      } finally {
+        qrPollInFlightRef.current = false;
+      }
+    }, 5000);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [showQrFlow, onboardingQrState?.sessionId, onboardingQrState?.status]);
 
   async function handleAiContinue() {
     const isValid = await form.trigger(stepFields[5], { shouldFocus: true });
@@ -497,7 +741,36 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
     window.location.assign(routes.UserPageRoute.to);
   }
 
-  const buttonBusy = isSavingStep || showTrainingOverlay;
+  const qrStatus =
+    onboardingQrState?.status ??
+    (watchedValues.qrConnected ? "connected" : "disconnected");
+  const qrImageSrc = useMemo(
+    () => getQrImageSrc(onboardingQrState?.codeData ?? null),
+    [onboardingQrState?.codeData],
+  );
+  const qrIsConnected =
+    qrStatus === "connected" ||
+    Boolean(onboardingQrState?.connected) ||
+    watchedValues.qrConnected;
+  const qrIsPending = qrStatus === "pending";
+  const qrStatusLabel = qrIsConnected
+    ? "Connected"
+    : qrIsPending
+      ? "Scanning now"
+      : qrStatus === "failed"
+        ? "Needs attention"
+        : qrStatus === "expired"
+          ? "Expired"
+          : "Ready to scan";
+  const qrPrimaryActionLabel = qrIsConnected
+    ? "Continue to AI + Lead Engine"
+    : !onboardingQrState?.sessionId ||
+        qrStatus === "failed" ||
+        qrStatus === "expired"
+      ? "Generate QR"
+      : "Refresh QR status";
+  const buttonBusy =
+    isSavingStep || showTrainingOverlay || isStartingQr || isRefreshingQr;
   const inputClass =
     "w-full rounded-[14px] border border-[#e5e7eb] bg-[#fbfaf7] px-4 py-3 text-sm text-[#111827] placeholder:text-[#9ca3af] placeholder:opacity-100 outline-none transition focus:border-[#fe901d] focus:bg-white focus:shadow-[0_0_0_4px_rgba(254,144,29,0.12)] dark:border-white/10 dark:bg-[#0f172a] dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-[#111827]";
   const ghostButtonClass =
@@ -1012,13 +1285,10 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_.9fr]">
-          <ChoiceCard
-            active
-            className="cursor-default space-y-5 rounded-[24px] p-5"
-          >
+          <div className="space-y-5 rounded-[24px] border-[1.5px] border-[#fe901d] bg-[linear-gradient(135deg,rgba(254,144,29,0.10),rgba(255,255,255,0.94))] p-5 text-left transition dark:bg-[linear-gradient(135deg,rgba(254,144,29,0.14),rgba(15,23,42,0.94))]">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#a58f72]">
-                Scanning now
+                {qrStatusLabel}
               </p>
               <h4 className="mt-2 text-2xl font-black text-[#161d2f] dark:text-slate-100">
                 {currentFlow === "sales"
@@ -1030,22 +1300,60 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
               </p>
             </div>
 
+            {onboardingQrState?.lastError || (qrIsPending && !qrImageSrc) ? (
+              <div className="rounded-[14px] border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-200">
+                {onboardingQrState?.lastError ??
+                  "Evolution is preparing the QR code. Please refresh in a moment."}
+              </div>
+            ) : null}
+
             <div className="relative mx-auto h-[240px] w-[240px] overflow-hidden rounded-[24px] border border-[#ece8df] bg-white dark:border-white/10 dark:bg-[#0f172a]">
               <div className="absolute inset-[14px] rounded-[16px] bg-[linear-gradient(135deg,#fffaf0,#ffffff)] opacity-90 dark:bg-[linear-gradient(135deg,#111827,#0f172a)]" />
               <div className="absolute inset-[18px] z-10 grid place-items-center rounded-[16px] border border-dashed border-[#d9d3c5] bg-white dark:border-white/15 dark:bg-[#111827]">
-                <QrCode
-                  className="h-28 w-28 text-[#fe901d]"
-                  strokeWidth={1.8}
-                />
+                {qrImageSrc ? (
+                  <img
+                    alt="WhatsApp QR code"
+                    className="h-full w-full rounded-[14px] object-contain p-2"
+                    src={qrImageSrc}
+                  />
+                ) : qrIsConnected ? (
+                  <div className="grid place-items-center gap-3 text-center">
+                    <CheckCircle2 className="h-16 w-16 text-emerald-500" />
+                    <div>
+                      <p className="text-sm font-bold text-[#161d2f] dark:text-slate-100">
+                        Connected
+                      </p>
+                      <p className="mt-1 max-w-[160px] text-xs text-[#6b7280] dark:text-slate-300/75">
+                        QR is hidden after a successful link.
+                      </p>
+                    </div>
+                  </div>
+                ) : isStartingQr || qrIsPending || isRefreshingQr ? (
+                  <div className="grid place-items-center gap-3 text-center">
+                    <Loader2 className="h-12 w-12 animate-spin text-[#fe901d]" />
+                    <p className="max-w-[160px] text-xs font-semibold text-[#6b7280] dark:text-slate-300/75">
+                      Preparing QR...
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid place-items-center gap-3 text-center">
+                    <QrCode
+                      className="h-20 w-20 text-[#fe901d]"
+                      strokeWidth={1.8}
+                    />
+                    <p className="max-w-[160px] text-xs font-semibold text-[#6b7280] dark:text-slate-300/75">
+                      Generate a QR session to link WhatsApp.
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="absolute left-4 right-4 top-6 z-20 h-[2px] animate-[pulse_2.2s_ease-in-out_infinite] bg-[linear-gradient(90deg,transparent,#fe901d,transparent)] shadow-[0_0_18px_#fe901d]" />
+              {qrImageSrc && qrIsPending ? (
+                <div className="absolute left-4 right-4 top-6 z-20 h-[2px] animate-[pulse_2.2s_ease-in-out_infinite] bg-[linear-gradient(90deg,transparent,#fe901d,transparent)] shadow-[0_0_18px_#fe901d]" />
+              ) : null}
             </div>
-          </ChoiceCard>
+          </div>
 
-          <ChoiceCard
-            active={false}
-            className="cursor-default space-y-4 rounded-[24px] p-5"
-          >
+          <div className="space-y-4 rounded-[24px] border-[1.5px] border-[#e5e7eb] bg-white p-5 text-left transition dark:border-white/10 dark:bg-[#111827]">
             <h4 className="text-xl font-black text-[#161d2f] dark:text-slate-100">
               {currentFlow === "sales"
                 ? "Instant Revenue Engine"
@@ -1055,20 +1363,64 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
               QR is the fastest way to start today. You can always upgrade to
               the Official API later.
             </p>
-            <button
-              className="inline-flex cursor-pointer items-center gap-2 rounded-[12px] border border-[#d1d5db] bg-white px-5 py-2.5 text-sm font-semibold text-[#374151] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5"
-              disabled={buttonBusy}
-              onClick={handleQrComplete}
-              type="button"
-            >
-              {buttonBusy ? "Saving..." : "Simulate scan complete"}
-              {buttonBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-            </button>
-          </ChoiceCard>
+            <div className="rounded-[16px] border border-[#e5e7eb] bg-[#fbfaf7] p-4 text-sm text-[#6b7280] dark:border-white/10 dark:bg-[#0f172a] dark:text-slate-300/75">
+              <p className="font-semibold text-[#161d2f] dark:text-slate-100">
+                Status: {qrStatusLabel}
+              </p>
+              {onboardingQrState?.sessionId ? (
+                <p className="mt-1 break-all">
+                  Session: {onboardingQrState.sessionId}
+                </p>
+              ) : null}
+              {onboardingQrState?.lastSeen ? (
+                <p className="mt-1">
+                  Last seen:{" "}
+                  {new Date(onboardingQrState.lastSeen).toLocaleString()}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-[12px] border border-[#d1d5db] bg-white px-5 py-2.5 text-sm font-semibold text-[#374151] transition hover:bg-[#f9fafb] disabled:cursor-not-allowed dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5"
+                disabled={buttonBusy}
+                onClick={() => {
+                  if (qrIsConnected) {
+                    void handleQrConnected(onboardingQrState);
+                    return;
+                  }
+                  if (
+                    !onboardingQrState?.sessionId ||
+                    qrStatus === "failed" ||
+                    qrStatus === "expired"
+                  ) {
+                    void startOnboardingQrHandshake();
+                    return;
+                  }
+                  void refreshOnboardingQrStatus();
+                }}
+                type="button"
+              >
+                {buttonBusy ? "Working..." : qrPrimaryActionLabel}
+                {buttonBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : qrIsConnected ? (
+                  <ArrowRight className="h-4 w-4" />
+                ) : (
+                  <QrCode className="h-4 w-4" />
+                )}
+              </button>
+              {onboardingQrState?.sessionId && !qrIsConnected ? (
+                <button
+                  className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-[12px] px-5 py-2.5 text-sm font-semibold text-[#7b6b55] transition hover:bg-[#fff8ec] disabled:cursor-not-allowed dark:text-slate-300 dark:hover:bg-white/5"
+                  disabled={buttonBusy}
+                  onClick={() => void startOnboardingQrHandshake()}
+                  type="button"
+                >
+                  Generate fresh QR
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       )}
 

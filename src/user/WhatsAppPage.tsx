@@ -243,10 +243,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
       setWebhookUrl(workspaceState.webhook.inboundUrl ?? "");
       setWebhookEnabled(workspaceState.webhook.enabled);
     }
-  }, [
-    workspaceState?.webhook?.enabled,
-    workspaceState?.webhook?.inboundUrl,
-  ]);
+  }, [workspaceState?.webhook?.enabled, workspaceState?.webhook?.inboundUrl]);
 
   useEffect(() => {
     if (
@@ -337,15 +334,28 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     setIsStartingQr(true);
 
     try {
-      const nextState = (await startWhatsAppQrHandshake(
-        {},
-      )) as WhatsAppWorkspaceState;
+      const nextState = (await startWhatsAppQrHandshake({
+        forceFresh: qrState?.connected || qrStatus === "connected",
+      })) as WhatsAppWorkspaceState;
       setWorkspaceState(nextState);
-      toast({
-        title: "QR generated",
-        description:
-          "Scan the QR code from WhatsApp on your phone to complete the link.",
-      });
+      if (nextState.qr.status === "connected" || nextState.qr.connected) {
+        toast({
+          title: "WhatsApp already connected",
+          description:
+            "Evolution reports this workspace has a live WhatsApp session.",
+        });
+      } else if (nextState.qr.codeData) {
+        toast({
+          title: "QR generated",
+          description:
+            "Scan the QR code from WhatsApp on your phone to complete the link.",
+        });
+      } else {
+        toast({
+          title: "QR session started",
+          description: "Evolution is preparing the QR. Refresh in a moment.",
+        });
+      }
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -532,13 +542,14 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
 
   return (
     <UserLayout user={user}>
-      <div className="w-full space-y-5">
-
+      <div className="mx-auto w-full max-w-7xl min-w-0 space-y-5 overflow-hidden">
         {/* ── Page Header ── */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight text-[#182235] dark:text-white">WhatsApp</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-[#182235] dark:text-white">
+                WhatsApp
+              </h1>
               {/* QR connected pill */}
               {workspaceState?.qr.connected && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300">
@@ -555,7 +566,8 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               )}
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Manage WhatsApp connections, session health, API configuration, and automation
+              Manage WhatsApp connections, session health, API configuration,
+              and automation
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -592,8 +604,14 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">You're approaching QR limits</p>
-              <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">QR mode is limited to ~500 messages/day. Upgrade to the Official WhatsApp API to unlock 10,000+ messages, templates, and stable delivery.</p>
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                You're approaching QR limits
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+                QR mode is limited to ~500 messages/day. Upgrade to the Official
+                WhatsApp API to unlock 10,000+ messages, templates, and stable
+                delivery.
+              </p>
             </div>
             <div className="flex shrink-0 gap-2">
               <Button asChild size="sm" className="gap-1.5">
@@ -612,12 +630,23 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             {
               label: "Total Messages",
               value: "18,420",
-              sub: <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">↑ 12% <span className="text-slate-400 font-normal">this month</span></span>,
+              sub: (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+                  ↑ 12%{" "}
+                  <span className="text-slate-400 font-normal">this month</span>
+                </span>
+              ),
             },
             {
               label: "Active Sessions",
               value: workspaceState?.qr.connected ? "1" : "0",
-              sub: <span className="text-xs text-slate-400">{workspaceState?.qr.connected ? "QR Mode active" : "No active session"}</span>,
+              sub: (
+                <span className="text-xs text-slate-400">
+                  {workspaceState?.qr.connected
+                    ? "QR Mode active"
+                    : "No active session"}
+                </span>
+              ),
             },
             {
               label: "QR Usage Today",
@@ -625,8 +654,12 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               sub: (
                 <div className="mt-1">
                   <div className="mb-1 flex justify-between">
-                    <span className="text-xs text-slate-400">of ~500 limit</span>
-                    <span className="text-xs font-bold text-amber-600">68%</span>
+                    <span className="text-xs text-slate-400">
+                      of ~500 limit
+                    </span>
+                    <span className="text-xs font-bold text-amber-600">
+                      68%
+                    </span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
                     <div className="h-full w-[68%] rounded-full bg-amber-500" />
@@ -637,34 +670,47 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             {
               label: "AI Replies",
               value: "5,820",
-              sub: <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">↑ 24% <span className="text-slate-400 font-normal">vs last week</span></span>,
+              sub: (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+                  ↑ 24%{" "}
+                  <span className="text-slate-400 font-normal">
+                    vs last week
+                  </span>
+                </span>
+              ),
             },
           ].map((kpi) => (
-            <div key={kpi.label} className="rounded-xl border border-[#e8e2d8] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">{kpi.label}</p>
-              <p className="mt-1 text-2xl font-bold tracking-tight text-[#182235] dark:text-white">{kpi.value}</p>
+            <div
+              key={kpi.label}
+              className="rounded-xl border border-[#e8e2d8] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none"
+            >
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                {kpi.label}
+              </p>
+              <p className="mt-1 text-2xl font-bold tracking-tight text-[#182235] dark:text-white">
+                {kpi.value}
+              </p>
               <div className="mt-1">{kpi.sub}</div>
             </div>
           ))}
         </div>
 
         {/* ── Main Grid: Left (Mode Cards + Jennifer + Webhook) + Right Sidebar ── */}
-        <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
           {/* LEFT COLUMN */}
-          <div className="space-y-5">
-
+          <div className="min-w-0 space-y-5">
             {/* Mode Cards: QR + Official API side by side */}
-            <div className="grid gap-4 sm:grid-cols-2">
-
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
               {/* QR Mode Card */}
-              <div className={cn(
-                "relative overflow-hidden rounded-xl border shadow-sm dark:shadow-none",
-                qrStatus === "connected"
-                  ? "border-emerald-300 dark:border-emerald-500/30"
-                  : "border-[#e8e2d8] dark:border-white/10",
-                "bg-white dark:bg-[#0d1524]"
-              )}>
+              <div
+                className={cn(
+                  "relative overflow-hidden rounded-xl border shadow-sm dark:shadow-none",
+                  qrStatus === "connected"
+                    ? "border-emerald-300 dark:border-emerald-500/30"
+                    : "border-[#e8e2d8] dark:border-white/10",
+                  "bg-white dark:bg-[#0d1524]",
+                )}
+              >
                 {/* Top accent line */}
                 <div className="h-[3px] w-full bg-[#25d366]" />
                 {/* Header */}
@@ -674,48 +720,95 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       <QrCode className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-[#182235] dark:text-white">QR Mode</p>
+                      <p className="text-sm font-bold text-[#182235] dark:text-white">
+                        QR Mode
+                      </p>
                       <p className="text-xs text-slate-400">Instant session</p>
                     </div>
                   </div>
-                  <span className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider",
-                    qrStatusMeta[qrStatus].tone,
-                  )}>
-                    <span className={cn("h-1.5 w-1.5 rounded-full", qrStatusMeta[qrStatus].dot, qrStatus === "connected" && "animate-pulse")} />
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider",
+                      qrStatusMeta[qrStatus].tone,
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        qrStatusMeta[qrStatus].dot,
+                        qrStatus === "connected" && "animate-pulse",
+                      )}
+                    />
                     {qrStatusMeta[qrStatus].label}
                   </span>
                 </div>
                 {/* Body */}
                 <div className="px-5 py-4 space-y-0">
                   {[
-                    { label: "Device info", value: workspaceState?.qr.deviceInfo || "—" },
-                    { label: "Session ID", value: workspaceState?.qr.sessionId ? workspaceState.qr.sessionId.substring(0, 24) + "…" : "—" },
-                    { label: "Last seen", value: formatDateTime(workspaceState?.qr.lastSeen ?? null) },
+                    {
+                      label: "Device info",
+                      value: workspaceState?.qr.deviceInfo || "—",
+                    },
+                    {
+                      label: "Session ID",
+                      value: workspaceState?.qr.sessionId
+                        ? workspaceState.qr.sessionId.substring(0, 24) + "…"
+                        : "—",
+                    },
+                    {
+                      label: "Last seen",
+                      value: formatDateTime(
+                        workspaceState?.qr.lastSeen ?? null,
+                      ),
+                    },
                   ].map((row) => (
-                    <div key={row.label} className="flex items-center justify-between border-b border-[#f9fafb] py-2.5 last:border-b-0 dark:border-white/5">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{row.label}</span>
-                      <span className="text-xs font-bold text-[#182235] dark:text-white max-w-[160px] truncate text-right">{row.value}</span>
+                    <div
+                      key={row.label}
+                      className="flex items-center justify-between border-b border-[#f9fafb] py-2.5 last:border-b-0 dark:border-white/5"
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        {row.label}
+                      </span>
+                      <span className="text-xs font-bold text-[#182235] dark:text-white max-w-[160px] truncate text-right">
+                        {row.value}
+                      </span>
                     </div>
                   ))}
                   {/* QR image / status area */}
-                  <div className={cn("mt-3 flex min-h-[80px] items-center justify-center rounded-lg border p-3", "border-[#f0f0f0] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5")}>
+                  <div
+                    className={cn(
+                      "mt-3 flex min-h-[80px] items-center justify-center rounded-lg border p-3",
+                      "border-[#f0f0f0] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
+                    )}
+                  >
                     {isLoading ? (
-                      <Loader2 className={cn("h-6 w-6 animate-spin", softTextClass)} />
+                      <Loader2
+                        className={cn("h-6 w-6 animate-spin", softTextClass)}
+                      />
                     ) : qrImageSrc ? (
-                      <img alt="WhatsApp QR code" className="h-20 w-20 object-contain" src={qrImageSrc} />
+                      <img
+                        alt="WhatsApp QR code"
+                        className="h-20 w-20 object-contain"
+                        src={qrImageSrc}
+                      />
                     ) : qrStatus === "connected" ? (
                       <div className="flex flex-col items-center gap-1.5 text-center text-emerald-600 dark:text-emerald-400 sm:flex-row sm:text-left">
                         <CheckCircle2 className="h-5 w-5 shrink-0" />
-                        <span className="text-sm font-semibold">Session healthy · Messages flowing</span>
+                        <span className="text-sm font-semibold">
+                          Session healthy · Messages flowing
+                        </span>
                       </div>
                     ) : qrStatus === "pending" ? (
                       <div className="flex items-center gap-2 text-amber-600">
                         <Loader2 className="h-5 w-5 animate-spin" />
-                        <span className="text-sm font-semibold">Generating QR…</span>
+                        <span className="text-sm font-semibold">
+                          Generating QR…
+                        </span>
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">Generate a QR to link your phone</span>
+                      <span className="text-xs text-slate-400">
+                        Generate a QR to link your phone
+                      </span>
                     )}
                   </div>
                   {workspaceState?.qr.lastError && (
@@ -732,28 +825,53 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                     disabled={isStartingQr || isLoading}
                     onClick={handleStartQrHandshake}
                   >
-                    {isStartingQr ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <QrCode className="h-3.5 w-3.5" />}
-                    {isStartingQr ? "Generating…" : "Connect WhatsApp"}
+                    {isStartingQr ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <QrCode className="h-3.5 w-3.5" />
+                    )}
+                    {isStartingQr
+                      ? "Generating..."
+                      : qrStatus === "connected"
+                        ? "Start fresh QR"
+                        : "Connect WhatsApp"}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     className={cn("gap-1.5", outlineButtonClass)}
-                    disabled={isRefreshingQr || isLoading || !workspaceState?.qr.sessionId}
+                    disabled={
+                      isRefreshingQr ||
+                      isLoading ||
+                      !workspaceState?.qr.sessionId
+                    }
                     onClick={handleRefreshQr}
                   >
-                    {isRefreshingQr ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    {isRefreshingQr ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
                     Refresh
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     className="border-red-200 text-red-500 hover:bg-red-50 dark:border-red-500/30 dark:hover:bg-red-500/10"
-                    disabled={isDisconnectingQr || isLoading || (!workspaceState?.qr.sessionId && workspaceState?.qr.status === "disconnected")}
+                    disabled={
+                      isDisconnectingQr ||
+                      isLoading ||
+                      (!workspaceState?.qr.sessionId &&
+                        workspaceState?.qr.status === "disconnected")
+                    }
                     onClick={handleDisconnectQr}
                     title="Disconnect session"
                   >
-                    {isDisconnectingQr ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
+                    {isDisconnectingQr ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Unplug className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </div>
               </div>
@@ -769,14 +887,20 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       <ShieldCheck className="h-4 w-4 text-[#fe901d]" />
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-[#182235] dark:text-white">Official API</p>
-                      <p className="text-xs text-slate-400">Meta Business API</p>
+                      <p className="text-sm font-bold text-[#182235] dark:text-white">
+                        Official API
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Meta Business API
+                      </p>
                     </div>
                   </div>
-                  <span className={cn(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider",
-                    apiStatusMeta[apiStatus].tone,
-                  )}>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider",
+                      apiStatusMeta[apiStatus].tone,
+                    )}
+                  >
                     {apiStatusMeta[apiStatus].label}
                   </span>
                 </div>
@@ -787,33 +911,63 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#fddcaa] bg-[#fff3e1] dark:border-[rgba(254,144,29,0.2)] dark:bg-[rgba(254,144,29,0.1)]">
                         <ShieldCheck className="h-5 w-5 text-[#fe901d]" />
                       </div>
-                      <p className="mt-2 text-sm font-bold text-[#182235] dark:text-white">Unlock High-Volume Messaging</p>
-                      <p className="mt-1 text-xs text-slate-400 leading-5">Send 10,000+ messages/day with verified delivery, templates, and broadcast scheduling.</p>
+                      <p className="mt-2 text-sm font-bold text-[#182235] dark:text-white">
+                        Unlock High-Volume Messaging
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400 leading-5">
+                        Send 10,000+ messages/day with verified delivery,
+                        templates, and broadcast scheduling.
+                      </p>
                     </div>
                   ) : null}
                   {[
-                    { label: "Phone number", value: workspaceState?.api.phoneNumber || "—" },
-                    { label: "API status", value: apiStatusMeta[apiStatus].label },
-                    { label: "Messaging limit", value: workspaceState?.api.messagingLimit || "Up to 100k/day after verification" },
+                    {
+                      label: "Phone number",
+                      value: workspaceState?.api.phoneNumber || "—",
+                    },
+                    {
+                      label: "API status",
+                      value: apiStatusMeta[apiStatus].label,
+                    },
+                    {
+                      label: "Messaging limit",
+                      value:
+                        workspaceState?.api.messagingLimit ||
+                        "Up to 100k/day after verification",
+                    },
                   ].map((row) => (
-                    <div key={row.label} className="flex items-center justify-between border-b border-[#f9fafb] py-2.5 last:border-b-0 dark:border-white/5">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{row.label}</span>
-                      <span className="text-xs font-bold text-[#182235] dark:text-white max-w-[160px] truncate text-right">{row.value}</span>
+                    <div
+                      key={row.label}
+                      className="flex items-center justify-between border-b border-[#f9fafb] py-2.5 last:border-b-0 dark:border-white/5"
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        {row.label}
+                      </span>
+                      <span className="text-xs font-bold text-[#182235] dark:text-white max-w-[160px] truncate text-right">
+                        {row.value}
+                      </span>
                     </div>
                   ))}
                 </div>
                 {/* Footer */}
                 <div className="flex flex-wrap gap-2 border-t border-[#f3f4f6] px-5 py-3 dark:border-white/10">
-                  <Button asChild size="sm" className="flex-1 gap-1.5 min-w-[120px]">
+                  <Button
+                    asChild
+                    size="sm"
+                    className="flex-1 gap-1.5 min-w-[120px]"
+                  >
                     <Link to="/whatsapp/setup">
                       <Rocket className="h-3.5 w-3.5" />
                       {apiStatus === "none" ? "Set Up API" : "Open API Setup"}
                     </Link>
                   </Button>
-                  <Button asChild size="sm" variant="outline" className={cn("gap-1.5", outlineButtonClass)}>
-                    <Link to="/whatsapp/setup">
-                      Learn More
-                    </Link>
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className={cn("gap-1.5", outlineButtonClass)}
+                  >
+                    <Link to="/whatsapp/setup">Learn More</Link>
                   </Button>
                 </div>
               </div>
@@ -823,11 +977,23 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f3f4f6] px-5 py-4 dark:border-white/10">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-[#182235] dark:text-white">Automation Engine (Jennifer)</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Controls whether Jennifer auto-replies to incoming WhatsApp messages via n8n</p>
+                  <p className="text-sm font-bold text-[#182235] dark:text-white">
+                    Automation Engine (Jennifer)
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Controls whether Jennifer auto-replies to incoming WhatsApp
+                    messages via n8n
+                  </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <span className={cn("text-sm font-semibold", workspaceState?.isAiActive ? "text-emerald-600 dark:text-emerald-400" : softTextClass)}>
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      workspaceState?.isAiActive
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : softTextClass,
+                    )}
+                  >
                     {workspaceState?.isAiActive ? "Active" : "Muted"}
                   </span>
                   <Switch
@@ -838,8 +1004,18 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                 </div>
               </div>
               <div className="px-5 py-4">
-                <div className={cn("rounded-lg border p-3", "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5")}>
-                  <div className={cn("flex items-center gap-2 text-sm font-semibold", strongTextClass)}>
+                <div
+                  className={cn(
+                    "rounded-lg border p-3",
+                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 text-sm font-semibold",
+                      strongTextClass,
+                    )}
+                  >
                     <Bot className={cn("h-4 w-4", softTextClass)} />
                     Current behavior
                   </div>
@@ -859,19 +1035,43 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   <Webhook className="h-4 w-4 text-[#fe901d]" />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-[#182235] dark:text-white">Webhook Settings</p>
-                  <p className="text-xs text-slate-400">Forward inbound messages to n8n</p>
+                  <p className="text-sm font-bold text-[#182235] dark:text-white">
+                    Webhook Settings
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Forward inbound messages to n8n
+                  </p>
                 </div>
               </div>
               <div className="space-y-4 px-5 py-4">
                 {/* Evolution webhook target */}
-                <div className={cn("rounded-lg border p-4", "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5")}>
+                <div
+                  className={cn(
+                    "rounded-lg border p-4",
+                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
+                  )}
+                >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className={cn("text-xs font-semibold uppercase tracking-wider", softTextClass)}>Evolution webhook target</p>
-                      <p className={cn("mt-0.5 text-xs", softTextClass)}>Add this URL in Evolution API so WhatsApp events enter QuicReply before n8n.</p>
+                      <p
+                        className={cn(
+                          "text-xs font-semibold uppercase tracking-wider",
+                          softTextClass,
+                        )}
+                      >
+                        Evolution webhook target
+                      </p>
+                      <p className={cn("mt-0.5 text-xs", softTextClass)}>
+                        Add this URL in Evolution API so WhatsApp events enter
+                        QuicReply before n8n.
+                      </p>
                     </div>
-                    <Button size="sm" variant="outline" className={cn("shrink-0", outlineButtonClass)} onClick={handleCopyBackendWebhookUrl}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={cn("shrink-0", outlineButtonClass)}
+                      onClick={handleCopyBackendWebhookUrl}
+                    >
                       <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy URL
                     </Button>
                   </div>
@@ -880,13 +1080,33 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   </code>
                 </div>
                 {/* n8n reply callback */}
-                <div className={cn("rounded-lg border p-4", "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5")}>
+                <div
+                  className={cn(
+                    "rounded-lg border p-4",
+                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
+                  )}
+                >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className={cn("text-xs font-semibold uppercase tracking-wider", softTextClass)}>n8n reply callback</p>
-                      <p className={cn("mt-0.5 text-xs", softTextClass)}>n8n uses this URL to ask QuicReply to deliver the final AI response through Evolution.</p>
+                      <p
+                        className={cn(
+                          "text-xs font-semibold uppercase tracking-wider",
+                          softTextClass,
+                        )}
+                      >
+                        n8n reply callback
+                      </p>
+                      <p className={cn("mt-0.5 text-xs", softTextClass)}>
+                        n8n uses this URL to ask QuicReply to deliver the final
+                        AI response through Evolution.
+                      </p>
                     </div>
-                    <Button size="sm" variant="outline" className={cn("shrink-0", outlineButtonClass)} onClick={handleCopyN8nReplyCallbackUrl}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={cn("shrink-0", outlineButtonClass)}
+                      onClick={handleCopyN8nReplyCallbackUrl}
+                    >
                       <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy URL
                     </Button>
                   </div>
@@ -896,7 +1116,14 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                 </div>
                 {/* n8n inbound URL input */}
                 <label className="block">
-                  <span className={cn("text-xs font-semibold uppercase tracking-wider", softTextClass)}>n8n inbound webhook URL</span>
+                  <span
+                    className={cn(
+                      "text-xs font-semibold uppercase tracking-wider",
+                      softTextClass,
+                    )}
+                  >
+                    n8n inbound webhook URL
+                  </span>
                   <input
                     className="mt-2 h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm text-[#182235] outline-none transition placeholder:text-slate-400 focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-600"
                     onChange={(e) => setWebhookUrl(e.target.value)}
@@ -905,15 +1132,39 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   />
                 </label>
                 {/* Enable forwarding toggle */}
-                <div className={cn("flex items-center justify-between gap-4 rounded-lg border p-4", "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5")}>
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-4 rounded-lg border p-4",
+                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
+                  )}
+                >
                   <div>
-                    <p className={cn("text-sm font-semibold", strongTextClass)}>Enable forwarding</p>
-                    <p className={cn("mt-0.5 text-xs", softTextClass)}>Keep disabled until n8n is ready to receive production messages.</p>
+                    <p className={cn("text-sm font-semibold", strongTextClass)}>
+                      Enable forwarding
+                    </p>
+                    <p className={cn("mt-0.5 text-xs", softTextClass)}>
+                      Keep disabled until n8n is ready to receive production
+                      messages.
+                    </p>
                   </div>
-                  <Switch checked={webhookEnabled} onCheckedChange={setWebhookEnabled} />
+                  <Switch
+                    checked={webhookEnabled}
+                    onCheckedChange={setWebhookEnabled}
+                  />
                 </div>
-                <Button className="w-full" disabled={isSavingWebhook} onClick={handleSaveWebhookSettings}>
-                  {isSavingWebhook ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : "Save webhook settings"}
+                <Button
+                  className="w-full"
+                  disabled={isSavingWebhook}
+                  onClick={handleSaveWebhookSettings}
+                >
+                  {isSavingWebhook ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save webhook settings"
+                  )}
                 </Button>
               </div>
             </div>
@@ -922,43 +1173,108 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
               <div className="flex items-center justify-between border-b border-[#f3f4f6] px-5 py-4 dark:border-white/10">
                 <div>
-                  <p className="text-sm font-bold text-[#182235] dark:text-white">Message Logs</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Latest WhatsApp activity pulled from the backend</p>
+                  <p className="text-sm font-bold text-[#182235] dark:text-white">
+                    Message Logs
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Latest WhatsApp activity pulled from the backend
+                  </p>
                 </div>
-                <Button size="sm" variant="outline" className={cn("gap-1.5", outlineButtonClass)} disabled={messageLogsQuery.isLoading || isRefreshingMessageLogs} onClick={handleRefreshMessageLogs}>
-                  {isRefreshingMessageLogs ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={cn("gap-1.5", outlineButtonClass)}
+                  disabled={
+                    messageLogsQuery.isLoading || isRefreshingMessageLogs
+                  }
+                  onClick={handleRefreshMessageLogs}
+                >
+                  {isRefreshingMessageLogs ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
                   Refresh logs
                 </Button>
               </div>
               <div className="divide-y divide-[#f9fafb] dark:divide-white/5">
                 {messageLogsQuery.isLoading ? (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className={cn("h-6 w-6 animate-spin", softTextClass)} />
+                    <Loader2
+                      className={cn("h-6 w-6 animate-spin", softTextClass)}
+                    />
                   </div>
                 ) : messageLogs.length ? (
                   messageLogs.slice(0, 6).map((log) => {
-                    const participant = log.direction === "inbound" ? log.pushName || formatParticipant(log.from) : formatParticipant(log.to);
+                    const participant =
+                      log.direction === "inbound"
+                        ? log.pushName || formatParticipant(log.from)
+                        : formatParticipant(log.to);
                     return (
-                      <div key={log.id} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-[#fafafa] dark:hover:bg-white/5">
-                        <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", log.direction === "inbound" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-400" : "bg-[#fe901d]/10 text-[#fe901d]")}>
+                      <div
+                        key={log.id}
+                        className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-[#fafafa] dark:hover:bg-white/5"
+                      >
+                        <div
+                          className={cn(
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                            log.direction === "inbound"
+                              ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-400"
+                              : "bg-[#fe901d]/10 text-[#fe901d]",
+                          )}
+                        >
                           <MessageSquare className="h-3.5 w-3.5" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <p className={cn("truncate text-sm font-semibold", strongTextClass)}>{participant}</p>
-                            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold uppercase", log.direction === "inbound" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300" : "bg-[#fe901d]/10 text-[#c96a00] dark:text-[#ffb45b]")}>{log.direction}</span>
+                            <p
+                              className={cn(
+                                "truncate text-sm font-semibold",
+                                strongTextClass,
+                              )}
+                            >
+                              {participant}
+                            </p>
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                                log.direction === "inbound"
+                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
+                                  : "bg-[#fe901d]/10 text-[#c96a00] dark:text-[#ffb45b]",
+                              )}
+                            >
+                              {log.direction}
+                            </span>
                           </div>
-                          <p className={cn("mt-0.5 truncate text-xs", softTextClass)}>{log.text}</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 truncate text-xs",
+                              softTextClass,
+                            )}
+                          >
+                            {log.text}
+                          </p>
                         </div>
-                        <span className={cn("shrink-0 text-xs", softTextClass)}>{formatMessageTime(log.timestamp)}</span>
+                        <span className={cn("shrink-0 text-xs", softTextClass)}>
+                          {formatMessageTime(log.timestamp)}
+                        </span>
                       </div>
                     );
                   })
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <MessageSquare className={cn("h-8 w-8", softTextClass)} />
-                    <p className={cn("mt-2 text-sm font-semibold", strongTextClass)}>No message logs yet</p>
-                    <p className={cn("mt-1 text-xs", softTextClass)}>Once connected, recent logs will appear here.</p>
+                    <p
+                      className={cn(
+                        "mt-2 text-sm font-semibold",
+                        strongTextClass,
+                      )}
+                    >
+                      No message logs yet
+                    </p>
+                    <p className={cn("mt-1 text-xs", softTextClass)}>
+                      Once connected, recent logs will appear here.
+                    </p>
                   </div>
                 )}
               </div>
@@ -967,12 +1283,23 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             {/* Send Test Message */}
             <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
               <div className="border-b border-[#f3f4f6] px-5 py-4 dark:border-white/10">
-                <p className="text-sm font-bold text-[#182235] dark:text-white">Send Test Message</p>
-                <p className="text-xs text-slate-400 mt-0.5">Verify outbound delivery through the linked QR instance</p>
+                <p className="text-sm font-bold text-[#182235] dark:text-white">
+                  Send Test Message
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Verify outbound delivery through the linked QR instance
+                </p>
               </div>
               <div className="space-y-4 px-5 py-4">
                 <label className="block">
-                  <span className={cn("text-xs font-semibold uppercase tracking-wider", softTextClass)}>Recipient number</span>
+                  <span
+                    className={cn(
+                      "text-xs font-semibold uppercase tracking-wider",
+                      softTextClass,
+                    )}
+                  >
+                    Recipient number
+                  </span>
                   <input
                     className="mt-2 h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm text-[#182235] outline-none transition placeholder:text-slate-400 focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-600"
                     onChange={(e) => setTestPhoneNumber(e.target.value)}
@@ -981,7 +1308,14 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   />
                 </label>
                 <label className="block">
-                  <span className={cn("text-xs font-semibold uppercase tracking-wider", softTextClass)}>Message</span>
+                  <span
+                    className={cn(
+                      "text-xs font-semibold uppercase tracking-wider",
+                      softTextClass,
+                    )}
+                  >
+                    Message
+                  </span>
                   <textarea
                     className="mt-2 min-h-[88px] w-full resize-none rounded-lg border border-[#e8e2d8] bg-white px-3 py-2.5 text-sm text-[#182235] outline-none transition placeholder:text-slate-400 focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-600"
                     onChange={(e) => setTestMessage(e.target.value)}
@@ -991,24 +1325,42 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                 </label>
                 <Button
                   className="w-full gap-1.5"
-                  disabled={isSendingTestMessage || !workspaceState?.qr.connected || !testPhoneNumber.trim() || !testMessage.trim()}
+                  disabled={
+                    isSendingTestMessage ||
+                    !workspaceState?.qr.connected ||
+                    !testPhoneNumber.trim() ||
+                    !testMessage.trim()
+                  }
                   onClick={handleSendTestMessage}
                 >
-                  {isSendingTestMessage ? <><Loader2 className="h-4 w-4 animate-spin" />Sending…</> : <><Send className="h-4 w-4" />Send test message</>}
+                  {isSendingTestMessage ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Send test message
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
-
-          </div>{/* /LEFT COLUMN */}
+          </div>
+          {/* /LEFT COLUMN */}
 
           {/* RIGHT SIDEBAR */}
-          <div className="space-y-4">
-
+          <div className="min-w-0 space-y-4">
             {/* Connection Health */}
             <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
               <div className="flex items-center justify-between border-b border-[#f3f4f6] px-5 py-3.5 dark:border-white/10">
-                <p className="text-sm font-bold text-[#182235] dark:text-white">Connection Health</p>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Live</span>
+                <p className="text-sm font-bold text-[#182235] dark:text-white">
+                  Connection Health
+                </p>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Live
+                </span>
               </div>
               <div className="space-y-3 px-5 py-4">
                 {[
@@ -1024,7 +1376,9 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   },
                   {
                     label: "Webhooks",
-                    status: workspaceState?.webhook.enabled ? "Listening" : "Disabled",
+                    status: workspaceState?.webhook.enabled
+                      ? "Listening"
+                      : "Disabled",
                     ok: workspaceState?.webhook.enabled ?? false,
                   },
                   {
@@ -1033,27 +1387,39 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                     ok: workspaceState?.isAiActive ?? false,
                   },
                 ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between">
+                  <div
+                    key={item.label}
+                    className="flex items-center justify-between"
+                  >
                     <div className="flex items-center gap-2">
-                      {item.ok
-                        ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        : <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      }
-                      <span className="text-sm font-semibold text-[#374054] dark:text-slate-300">{item.label}</span>
+                      {item.ok ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      )}
+                      <span className="text-sm font-semibold text-[#374054] dark:text-slate-300">
+                        {item.label}
+                      </span>
                     </div>
-                    <span className={cn(
-                      "rounded-full border px-2.5 py-0.5 text-[10px] font-bold",
-                      item.ok
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300"
-                        : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300"
-                    )}>
+                    <span
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-[10px] font-bold",
+                        item.ok
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300"
+                          : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300",
+                      )}
+                    >
                       {item.status}
                     </span>
                   </div>
                 ))}
                 <div className="border-t border-[#f3f4f6] pt-3 dark:border-white/10 flex justify-between">
-                  <span className="text-xs text-slate-400">Uptime this month</span>
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">99.4%</span>
+                  <span className="text-xs text-slate-400">
+                    Uptime this month
+                  </span>
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    99.4%
+                  </span>
                 </div>
               </div>
             </div>
@@ -1063,16 +1429,29 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               <div className="rounded-xl border border-[#fe901d]/20 bg-gradient-to-br from-[#fff7ed] to-white p-5 dark:border-[#fe901d]/20 dark:from-[#fe901d]/5 dark:to-transparent">
                 <div className="flex items-center gap-2 mb-3">
                   <Rocket className="h-5 w-5 text-[#fe901d]" />
-                  <span className="text-sm font-bold text-[#182235] dark:text-white">Upgrade to API</span>
+                  <span className="text-sm font-bold text-[#182235] dark:text-white">
+                    Upgrade to API
+                  </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 leading-5">
-                  You're at <strong className="text-amber-600">68% of your QR daily limit</strong>. Upgrade to unlock:
+                  You're at{" "}
+                  <strong className="text-amber-600">
+                    68% of your QR daily limit
+                  </strong>
+                  . Upgrade to unlock:
                 </p>
                 <div className="space-y-2 mb-4">
-                  {["10,000+ messages/day", "Message templates & broadcasts", "Verified green tick badge", "No session drops or bans"].map((feat) => (
+                  {[
+                    "10,000+ messages/day",
+                    "Message templates & broadcasts",
+                    "Verified green tick badge",
+                    "No session drops or bans",
+                  ].map((feat) => (
                     <div key={feat} className="flex items-center gap-2">
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                      <span className="text-xs text-slate-600 dark:text-slate-300">{feat}</span>
+                      <span className="text-xs text-slate-600 dark:text-slate-300">
+                        {feat}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1088,14 +1467,32 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             {/* Quick Actions */}
             <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
               <div className="border-b border-[#f3f4f6] px-5 py-3.5 dark:border-white/10">
-                <p className="text-sm font-bold text-[#182235] dark:text-white">Quick Actions</p>
+                <p className="text-sm font-bold text-[#182235] dark:text-white">
+                  Quick Actions
+                </p>
               </div>
               <div className="space-y-1.5 p-3">
                 {[
-                  { icon: <QrCode className="h-4 w-4 text-emerald-600" />, label: "Re-scan QR Code", onClick: handleStartQrHandshake },
-                  { icon: <ShieldCheck className="h-4 w-4 text-[#fe901d]" />, label: "Set Up API", href: "/whatsapp/setup" },
-                  { icon: <Webhook className="h-4 w-4 text-[#fe901d]" />, label: "Configure Webhooks", onClick: () => {} },
-                  { icon: <Bot className="h-4 w-4 text-[#fe901d]" />, label: "Manage Jennifer AI", href: "/settings" },
+                  {
+                    icon: <QrCode className="h-4 w-4 text-emerald-600" />,
+                    label: "Re-scan QR Code",
+                    onClick: handleStartQrHandshake,
+                  },
+                  {
+                    icon: <ShieldCheck className="h-4 w-4 text-[#fe901d]" />,
+                    label: "Set Up API",
+                    href: "/whatsapp/setup",
+                  },
+                  {
+                    icon: <Webhook className="h-4 w-4 text-[#fe901d]" />,
+                    label: "Configure Webhooks",
+                    onClick: () => {},
+                  },
+                  {
+                    icon: <Bot className="h-4 w-4 text-[#fe901d]" />,
+                    label: "Manage Jennifer AI",
+                    href: "/settings",
+                  },
                 ].map((action) =>
                   action.href ? (
                     <Link
@@ -1113,15 +1510,14 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                     >
                       {action.icon} {action.label}
                     </button>
-                  )
+                  ),
                 )}
               </div>
             </div>
-
-          </div>{/* /RIGHT SIDEBAR */}
-
-        </div>{/* /Main Grid */}
-
+          </div>
+          {/* /RIGHT SIDEBAR */}
+        </div>
+        {/* /Main Grid */}
       </div>
     </UserLayout>
   );
