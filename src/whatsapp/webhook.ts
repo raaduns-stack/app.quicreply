@@ -147,8 +147,11 @@ async function findOrganizationByInstance(instanceName: string) {
     select: {
       id: true,
       settings: true,
+      isAiActive: true,
       evolutionInstanceName: true,
       qrSessionId: true,
+      qrConnected: true,
+      qrStatus: true,
     },
   });
 }
@@ -169,6 +172,18 @@ function extractInboundMessageText(payload: Record<string, unknown>) {
       ["body"],
     ]) ?? "Unsupported message type"
   );
+}
+
+function normalizeWhatsAppPhone(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const digits = value
+    .replace(/@s\.whatsapp\.net|@c\.us|@g\.us/gi, "")
+    .replace(/\D/g, "");
+
+  return digits ? digits : null;
 }
 
 function extractInboundDirection(payload: Record<string, unknown>) {
@@ -231,6 +246,20 @@ async function createWhatsAppMessageLog({
   providerMessageId?: string | null;
   rawPayload?: unknown;
 }) {
+  if (providerMessageId) {
+    const existingLog = await prisma.whatsAppMessageLog.findFirst({
+      where: {
+        organizationId,
+        providerMessageId,
+      },
+      select: { id: true },
+    });
+
+    if (existingLog) {
+      return;
+    }
+  }
+
   await prisma.whatsAppMessageLog.create({
     data: {
       organizationId,
@@ -246,6 +275,84 @@ async function createWhatsAppMessageLog({
       providerEvent,
       providerMessageId,
       rawPayload: rawPayload as any,
+    },
+  });
+}
+
+function normalizeConnectionState(payload: Record<string, unknown>) {
+  const rawState =
+    findFirstStringByPaths(payload, [
+      ["data", "state"],
+      ["data", "status"],
+      ["state"],
+      ["status"],
+    ]) ?? "";
+  const state = rawState.toLowerCase();
+
+  if (
+    state.includes("open") ||
+    state.includes("connected") ||
+    state.includes("online")
+  ) {
+    return "connected";
+  }
+
+  if (state.includes("close") || state.includes("disconnect")) {
+    return "disconnected";
+  }
+
+  return null;
+}
+
+async function upsertContactFromWhatsApp({
+  organizationId,
+  direction,
+  from,
+  to,
+  pushName,
+  text,
+}: {
+  organizationId: string;
+  direction: "inbound" | "outbound";
+  from?: string | null;
+  to?: string | null;
+  pushName?: string | null;
+  text?: string | null;
+}) {
+  const phone = normalizeWhatsAppPhone(direction === "inbound" ? from : to);
+
+  if (!phone) {
+    return;
+  }
+
+  const now = new Date();
+  const fallbackName = pushName?.trim() || phone;
+
+  await prisma.contact.upsert({
+    where: {
+      organizationId_phone: {
+        organizationId,
+        phone,
+      },
+    },
+    update: {
+      name: pushName?.trim() || undefined,
+      source: "WhatsApp",
+      lastMessage: text || "Unsupported message type",
+      lastMessageAt: now,
+      lastMessageDirection: direction,
+    },
+    create: {
+      organizationId,
+      name: fallbackName,
+      phone,
+      source: "WhatsApp",
+      status: direction === "inbound" ? "ai-active" : "human-active",
+      tags: ["Interested"],
+      assignedTo: "Jennifer",
+      lastMessage: text || "Unsupported message type",
+      lastMessageAt: now,
+      lastMessageDirection: direction,
     },
   });
 }
@@ -371,8 +478,51 @@ export async function evolutionWhatsAppWebhook(
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
       : {};
+  const providerEvent =
+    findFirstStringByPaths(payloadRecord, [["event"], ["data", "event"]]) ??
+    "messages.upsert";
+  const connectionState = normalizeConnectionState(payloadRecord);
+
+  if (connectionState) {
+    await prisma.organization.update({
+      where: { id: organization.id },
+      data: {
+        qrConnected: connectionState === "connected",
+        qrStatus: connectionState,
+        qrStatusCheckedAt: new Date(),
+        qrLastSeen:
+          connectionState === "connected"
+            ? new Date()
+            : organization.qrConnected
+              ? new Date()
+              : undefined,
+        qrLastError: null,
+      },
+    });
+  }
+
   const direction = extractInboundDirection(payloadRecord);
   const remoteJid = extractInboundRemoteJid(payloadRecord);
+  const pushName =
+    findFirstStringByPaths(payloadRecord, [
+      ["data", "pushName"],
+      ["pushName"],
+      ["data", "name"],
+      ["name"],
+    ]) ?? null;
+  const messageText = extractInboundMessageText(payloadRecord);
+
+  const isMessageEvent =
+    providerEvent.toLowerCase().includes("message") || Boolean(remoteJid);
+
+  if (!isMessageEvent) {
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "non_message_event",
+    });
+    return;
+  }
 
   await createWhatsAppMessageLog({
     organizationId: organization.id,
@@ -380,13 +530,7 @@ export async function evolutionWhatsAppWebhook(
     direction,
     from: direction === "inbound" ? remoteJid : null,
     to: direction === "outbound" ? remoteJid : null,
-    pushName:
-      findFirstStringByPaths(payloadRecord, [
-        ["data", "pushName"],
-        ["pushName"],
-        ["data", "name"],
-        ["name"],
-      ]) ?? null,
+    pushName,
     messageType:
       findFirstStringByPaths(payloadRecord, [
         ["data", "messageType"],
@@ -394,20 +538,23 @@ export async function evolutionWhatsAppWebhook(
         ["data", "type"],
         ["type"],
       ]) ?? null,
-    text: extractInboundMessageText(payloadRecord),
+    text: messageText,
     status:
-      findFirstStringByPaths(payloadRecord, [
-        ["data", "status"],
-        ["status"],
-      ]) ?? "RECEIVED",
+      findFirstStringByPaths(payloadRecord, [["data", "status"], ["status"]]) ??
+      "RECEIVED",
     source: "evolution",
-    providerEvent:
-      findFirstStringByPaths(payloadRecord, [
-        ["event"],
-        ["data", "event"],
-      ]) ?? "messages.upsert",
+    providerEvent,
     providerMessageId: extractInboundMessageId(payloadRecord),
     rawPayload: payload,
+  });
+
+  await upsertContactFromWhatsApp({
+    organizationId: organization.id,
+    direction,
+    from: direction === "inbound" ? remoteJid : null,
+    to: direction === "outbound" ? remoteJid : null,
+    pushName,
+    text: messageText,
   });
 
   const orgWebhook = getWebhookSettings(organization.settings);
@@ -415,6 +562,24 @@ export async function evolutionWhatsAppWebhook(
     orgWebhook.enabled && orgWebhook.inboundUrl
       ? orgWebhook.inboundUrl
       : env.N8N_WHATSAPP_INBOUND_WEBHOOK_URL;
+
+  if (direction !== "inbound") {
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "not_inbound_message",
+    });
+    return;
+  }
+
+  if (!organization.isAiActive) {
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "jennifer_inactive",
+    });
+    return;
+  }
 
   if (!inboundUrl) {
     res.status(202).json({

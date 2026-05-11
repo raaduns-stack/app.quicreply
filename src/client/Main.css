@@ -112,14 +112,12 @@
   --shadow-5: 0px 1px 1px rgba(0, 0, 0, 0.15);
   --shadow-6: 0px 3px 15px rgba(0, 0, 0, 0.1);
   --shadow-7: -5px 0 0 #313d4a, 5px 0 0 #313d4a;
-  --shadow-8:
-    1px 0 0 #313d4a, -1px 0 0 #313d4a, 0 1px 0 #313d4a, 0 -1px 0 #313d4a,
-    0 3px 13px rgb(0 0 0 / 8%);
+  --shadow-8: 1px 0 0 #313d4a, -1px 0 0 #313d4a, 0 1px 0 #313d4a,
+    0 -1px 0 #313d4a, 0 3px 13px rgb(0 0 0 / 8%);
   --shadow-default: 0px 8px 13px -3px rgba(0, 0, 0, 0.07);
   --shadow-card: 0px 1px 3px rgba(0, 0, 0, 0.12);
   --shadow-card-2: 0px 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-switcher:
-    0px 2px 4px rgba(0, 0, 0, 0.2), inset 0px 2px 2px #ffffff,
+  --shadow-switcher: 0px 2px 4px rgba(0, 0, 0, 0.2), inset 0px 2px 2px #ffffff,
     inset 0px -1px 1px rgba(0, 0, 0, 0.1);
   --shadow-switch-1: 0px 0px 5px rgba(0, 0, 0, 0.15);
 
@@ -132,8 +130,8 @@
   --animate-spin-2: spin 2s linear infinite;
   --animate-spin-3: spin 3s linear infinite;
 
-  --shadow-premium: 0 20px 50px -12px rgba(0,0,0,0.08);
-  --shadow-premium-hover: 0 30px 60px -12px rgba(186,0,49,0.12);
+  --shadow-premium: 0 20px 50px -12px rgba(0, 0, 0, 0.08);
+  --shadow-premium-hover: 0 30px 60px -12px rgba(186, 0, 49, 0.12);
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
@@ -153,19 +151,19 @@
 @layer base {
   :root {
     /* The Light Base (QuicReply Landing Theme) */
-    --background: 0 0% 99%;      /* #fcfcfc */
-    --foreground: 0 0% 5.1%;     /* #0D0D0D */
-    --card: 210 17% 98%;          /* #f8f9fa */
+    --background: 0 0% 99%; /* #fcfcfc */
+    --foreground: 0 0% 5.1%; /* #0D0D0D */
+    --card: 210 17% 98%; /* #f8f9fa */
     --card-foreground: 0 0% 5.1%;
     --card-accent: 0 0% 95%;
     --card-accent-foreground: 0 0% 5.1%;
-    --card-subtle: 200 5% 89%;    /* #e1e3e4 outline area */
+    --card-subtle: 200 5% 89%; /* #e1e3e4 outline area */
     --card-subtle-foreground: 0 1% 37%; /* #5f5e5e secondary */
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 5.1%;
-    --primary: 31 99% 55%;    /* #FE901D */
+    --primary: 31 99% 55%; /* #FE901D */
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 1% 37%;        /* #5f5e5e */
+    --secondary: 0 1% 37%; /* #5f5e5e */
     --secondary-foreground: 0 0% 100%;
     --secondary-muted: 0 0% 96%;
     --secondary-muted-foreground: 0 1% 37%;
@@ -175,11 +173,11 @@
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --success: 141 71% 48%;       /* #25D366 wa-green */
+    --success: 141 71% 48%; /* #25D366 wa-green */
     --success-foreground: 0 0% 98%;
     --warning: 36 100% 50%;
     --warning-foreground: 0 0% 98%;
-    --border: 200 5% 89%;         /* #e1e3e4 */
+    --border: 200 5% 89%; /* #e1e3e4 */
     --input: 200 5% 89%;
     --ring: 31 99% 55%;
     --radius: 0.5rem;
@@ -187,9 +185,9 @@
 
   .dark {
     /* The Obsidian Base (Noir Editorial matching QuicReply Dark) */
-    --background: 0 0% 5.1%;      /* #0D0D0D */
-    --foreground: 0 0% 90%;     /* #e5e2e1 */
-    --card: 0 0% 5.1%;           /* #0D0D0D */
+    --background: 0 0% 5.1%; /* #0D0D0D */
+    --foreground: 0 0% 90%; /* #e5e2e1 */
+    --card: 0 0% 5.1%; /* #0D0D0D */
     --card-foreground: 0 0% 90%;
     --card-accent: 0 0% 14%;
     --card-accent-foreground: 0 0% 90%;
@@ -197,7 +195,7 @@
     --card-subtle-foreground: 0 0% 85%;
     --popover: 0 0% 5.1%;
     --popover-foreground: 0 0% 90%;
-    --primary: 31 99% 55%;     /* #FE901D */
+    --primary: 31 99% 55%; /* #FE901D */
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 20%;
     --secondary-foreground: 0 0% 90%;
@@ -238,11 +236,21 @@
 }
 
 @utility mesh-gradient {
-  background-image: radial-gradient(at 0% 0%, hsla(344, 100%, 36%, .05) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(344, 100%, 36%, .05) 0, transparent 50%);
+  background-image: radial-gradient(
+      at 0% 0%,
+      hsla(344, 100%, 36%, 0.05) 0,
+      transparent 50%
+    ),
+    radial-gradient(at 100% 0%, hsla(344, 100%, 36%, 0.05) 0, transparent 50%);
 }
 
 @utility mesh-gradient-dark {
-  background-image: radial-gradient(at 0% 0%, hsla(344, 100%, 36%, .15) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(344, 100%, 36%, .15) 0, transparent 50%);
+  background-image: radial-gradient(
+      at 0% 0%,
+      hsla(344, 100%, 36%, 0.15) 0,
+      transparent 50%
+    ),
+    radial-gradient(at 100% 0%, hsla(344, 100%, 36%, 0.15) 0, transparent 50%);
 }
 
 @utility gradient-primary {
@@ -250,14 +258,16 @@
 }
 
 @utility gradient-wa {
-  background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
+  background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
 }
 
 @utility hover-lift {
-  transition: transform .3s cubic-bezier(.34, 1.56, .64, 1), box-shadow .3s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.3s ease;
   &:hover {
     transform: translateY(-6px);
-    box-shadow: 0 30px 60px -12px rgba(186, 0, 49, .12);
+    box-shadow: 0 30px 60px -12px rgba(186, 0, 49, 0.12);
   }
 }
 
@@ -304,6 +314,13 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  select,
+  summary {
+    cursor: pointer;
   }
 }
 

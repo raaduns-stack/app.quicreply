@@ -1,76 +1,155 @@
-import { useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { type AuthUser } from "wasp/auth";
-import { useNavigate } from "react-router";
-import { completeOfficialApiSetup } from "wasp/client/operations";
+import { Link, useNavigate } from "react-router";
 import {
+  ArrowLeft,
   Building2,
   CheckCircle2,
-  Copy,
-  FileText,
-  Globe,
+  ClipboardCheck,
+  Globe2,
   Loader2,
-  Shield,
+  MessageSquareText,
+  Phone,
+  Rocket,
   ShieldCheck,
-  Upload,
 } from "lucide-react";
+import {
+  completeOfficialApiSetup,
+  getWhatsAppWorkspaceState,
+  useQuery,
+} from "wasp/client/operations";
 import { Button } from "../client/components/ui/button";
 import { useToast } from "../client/hooks/use-toast";
 import { cn } from "../client/utils";
 import UserLayout from "../user/layout/UserLayout";
 
-export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
-  const { toast } = useToast();
-  const navigate = useNavigate();
-  const [isSaving, setIsSaving] = useState(false);
-  const [apiStatus, setApiStatus] = useState<"none" | "pending" | "approved" | "rejected">(
-    "pending",
+type WhatsAppWorkspaceState = {
+  whatsappMode: "qr" | "api" | "both";
+  qr: {
+    connected: boolean;
+    status: "disconnected" | "pending" | "connected" | "expired" | "failed";
+  };
+  api: {
+    status: "none" | "pending" | "approved";
+    phoneNumber: string | null;
+    messagingLimit: string | null;
+  };
+};
+
+const inputClass =
+  "mt-2 h-11 w-full rounded-lg border border-[#263247] bg-[#0b1324] px-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20";
+
+const textareaClass =
+  "mt-2 min-h-[104px] w-full resize-none rounded-lg border border-[#263247] bg-[#0b1324] px-3 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20";
+
+const selectClass = cn(inputClass, "cursor-pointer");
+
+function StatusPill({
+  children,
+  tone = "amber",
+}: {
+  children: string;
+  tone?: "amber" | "emerald" | "slate";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+      : tone === "slate"
+        ? "border-white/10 bg-white/5 text-slate-300"
+        : "border-[#fe901d]/30 bg-[#fe901d]/10 text-[#ffb45b]";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider",
+        toneClass,
+      )}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {children}
+    </span>
   );
+}
 
-  // Form state
-  const [businessInfo, setBusinessInfo] = useState({
+function SetupCard({
+  eyebrow,
+  title,
+  icon,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-white/10 bg-[#101826] p-5 shadow-sm">
+      <div className="mb-5 flex items-center gap-3">
+        <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#fe901d]/10 text-[#fe901d]">
+          {icon}
+        </div>
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#c2a878]">
+            {eyebrow}
+          </p>
+          <h2 className="mt-1 text-lg font-bold text-white">{title}</h2>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery(getWhatsAppWorkspaceState);
+  const workspaceState = data as WhatsAppWorkspaceState | undefined;
+  const [isSaving, setIsSaving] = useState(false);
+  const [form, setForm] = useState({
     businessName: "",
-    country: "",
     website: "",
+    country: "",
+    apiPhoneNumber: workspaceState?.api.phoneNumber ?? "",
+    businessManagerId: "",
+    dailyVolume: "1,000 - 10,000 messages/day",
+    useCase: "Broadcasts, follow-ups, and Jennifer AI replies",
+    templateExample:
+      "Hi {{name}}, thanks for your interest. Jennifer from our team will help you with the next step.",
   });
-  const [businessManagerId, setBusinessManagerId] = useState("");
-  const [uploadedDocs, setUploadedDocs] = useState<string[]>([]);
-  const [metaConnected, setMetaConnected] = useState(false);
 
-  function handleConnectMeta() {
-    setIsSaving(true);
-    setTimeout(() => {
-      setMetaConnected(true);
-      setIsSaving(false);
-      toast({
-        title: "Connected to Meta",
-        description: "Your Meta account is now linked.",
-      });
-    }, 1500);
-  }
+  const apiStatus = workspaceState?.api.status ?? "none";
+  const statusMeta = useMemo(() => {
+    if (apiStatus === "approved") {
+      return { label: "Approved", tone: "emerald" as const };
+    }
 
-  function handleFileUpload() {
-    const mockFiles = ["CAC_Certificate.pdf", "Utility_Bill.pdf", "Director_ID.jpg"];
-    const next = mockFiles[uploadedDocs.length] || "Additional_Doc.pdf";
-    setUploadedDocs([...uploadedDocs, next]);
-  }
+    if (apiStatus === "pending") {
+      return { label: "Pending review", tone: "amber" as const };
+    }
 
-  function handleRemoveDoc(doc: string) {
-    setUploadedDocs(uploadedDocs.filter((d) => d !== doc));
+    return { label: "Not started", tone: "slate" as const };
+  }, [apiStatus]);
+
+  function updateForm(key: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
   }
 
   async function handleSubmit() {
     setIsSaving(true);
+
     try {
-      await completeOfficialApiSetup({});
+      await completeOfficialApiSetup(form);
       toast({
-        title: "Setup submitted",
-        description: "Your WhatsApp API setup has been submitted for review.",
+        title: "API setup request saved",
+        description:
+          "QR mode can keep running while the Official API setup is reviewed.",
       });
       navigate("/whatsapp");
     } catch (error: any) {
       toast({
         variant: "destructive",
-        title: "Could not complete setup",
+        title: "Could not save API request",
         description: error?.message || "Please try again.",
       });
     } finally {
@@ -78,376 +157,297 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
     }
   }
 
-  // Status color mapping
-  const statusPillStyles = {
-    required: "bg-rose-100 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300",
-    connect: "bg-[#fff3e1] text-[#c96a00] dark:bg-[rgba(254,144,29,0.12)] dark:text-[#ffb84d]",
-    review: "bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300",
-    pending: "bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300",
-    approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300",
-    rejected: "bg-red-100 text-red-700 dark:bg-red-400/10 dark:text-red-300",
-  };
-
-  const apiStatusText =
-    apiStatus === "approved" ? "Approved" : apiStatus === "rejected" ? "Rejected" : "Pending";
-  const apiStatusColor =
-    apiStatus === "approved"
-      ? statusPillStyles.approved
-      : apiStatus === "rejected"
-        ? statusPillStyles.rejected
-        : statusPillStyles.pending;
-
   return (
     <UserLayout user={user}>
-      <div className="w-full space-y-6">
-        {/* Page header */}
+      <div className="w-full min-w-0 space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#182235] dark:text-white">
-              Official WhatsApp API Setup
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Complete all steps below to enable your WhatsApp Business API integration.
+            <Button
+              asChild
+              variant="ghost"
+              className="mb-3 h-auto gap-2 px-0 text-slate-400 hover:bg-transparent hover:text-[#fe901d]"
+            >
+              <Link to="/whatsapp">
+                <ArrowLeft className="h-4 w-4" />
+                Back to WhatsApp
+              </Link>
+            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                Official WhatsApp API Setup
+              </h1>
+              <StatusPill tone={statusMeta.tone}>{statusMeta.label}</StatusPill>
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+              Upgrade from QR mode to verified high-volume WhatsApp delivery. QR
+              remains the active fast path while API details are reviewed.
             </p>
           </div>
+          <Button className="gap-2" disabled={isSaving} onClick={handleSubmit}>
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="h-4 w-4" />
+            )}
+            Submit API Request
+          </Button>
+        </div>
 
-          {/* API status pill */}
-          <div className="inline-flex items-center gap-3 rounded-2xl border border-[#e8e2d8] bg-white px-5 py-3.5 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
-            <div
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider",
-                apiStatusColor,
-              )}
-            >
-              <div className="h-2 w-2 rounded-full bg-current" />
-              {apiStatusText}
+        <div className="rounded-xl border border-[#fe901d]/25 bg-[#fe901d]/10 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-lg border border-[#fe901d]/30 bg-[#fe901d]/10 text-[#fe901d]">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-[#ffb45b]">
+                QR mode stays active while API setup is reviewed
+              </p>
+              <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                Official API unlocks higher limits, templates, verified business
+                identity, and more stable delivery. This page captures the setup
+                request; it does not fake Meta approval.
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Two-column grid */}
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_.8fr]">
-            {/* LEFT COLUMN: Step cards */}
-            <div className="space-y-6">
-              {/* Step 1: Business Info */}
-              <div className="overflow-hidden rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <div className="flex items-center gap-3.5 border-b border-[#e8e2d8] bg-white px-5 py-4.5 dark:border-white/10 dark:bg-[#0d1524]">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#fe901d] text-white text-sm font-bold">
-                    1
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-slate-900 dark:text-slate-100">Business Info</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider",
-                      statusPillStyles.required,
-                    )}
-                  >
-                    Required
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-5">
+            <SetupCard
+              eyebrow="Step 1"
+              icon={<Building2 className="h-5 w-5" />}
+              title="Business Profile"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Business name
                   </span>
-                </div>
-                <div className="space-y-4 px-5 pb-5 pt-5">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-900 dark:text-slate-100 mb-1.5">
-                      Business Name
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Enter business name"
-                      value={businessInfo.businessName}
-                      onChange={(e) =>
-                        setBusinessInfo({ ...businessInfo, businessName: e.target.value })
-                      }
-                      className={cn(
-                        "h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm outline-none focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20",
-                        "dark:border-white/10 dark:bg-[#111827] dark:text-slate-100",
-                      )}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-900 dark:text-slate-100 mb-1.5">
-                      Country
-                    </label>
-                    <select
-                      value={businessInfo.country}
-                      onChange={(e) =>
-                        setBusinessInfo({ ...businessInfo, country: e.target.value })
-                      }
-                      className={cn(
-                        "h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm outline-none focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20",
-                        "dark:border-white/10 dark:bg-[#111827] dark:text-slate-100",
-                      )}
-                    >
-                      <option value="">Select a country</option>
-                      <option value="Nigeria">Nigeria</option>
-                      <option value="Ghana">Ghana</option>
-                      <option value="Kenya">Kenya</option>
-                      <option value="South Africa">South Africa</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-900 dark:text-slate-100 mb-1.5">
-                      Website
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://example.com"
-                      value={businessInfo.website}
-                      onChange={(e) =>
-                        setBusinessInfo({ ...businessInfo, website: e.target.value })
-                      }
-                      className={cn(
-                        "h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm outline-none focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20",
-                        "dark:border-white/10 dark:bg-[#111827] dark:text-slate-100",
-                      )}
-                    />
-                  </div>
-                </div>
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      updateForm("businessName", event.target.value)
+                    }
+                    placeholder="e.g. Revenue Sales OS"
+                    value={form.businessName}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Website
+                  </span>
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      updateForm("website", event.target.value)
+                    }
+                    placeholder="https://example.com"
+                    value={form.website}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Country
+                  </span>
+                  <select
+                    className={selectClass}
+                    onChange={(event) =>
+                      updateForm("country", event.target.value)
+                    }
+                    value={form.country}
+                  >
+                    <option value="">Select country</option>
+                    <option value="Nigeria">Nigeria</option>
+                    <option value="Ghana">Ghana</option>
+                    <option value="Kenya">Kenya</option>
+                    <option value="South Africa">South Africa</option>
+                    <option value="United States">United States</option>
+                    <option value="United Kingdom">United Kingdom</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    WhatsApp number
+                  </span>
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      updateForm("apiPhoneNumber", event.target.value)
+                    }
+                    placeholder="e.g. 2348012345678"
+                    value={form.apiPhoneNumber}
+                  />
+                </label>
               </div>
+            </SetupCard>
 
-              {/* Step 2: Meta Link */}
-              <div className="overflow-hidden rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <div className="flex items-center gap-3.5 border-b border-[#e8e2d8] bg-white px-5 py-4.5 dark:border-white/10 dark:bg-[#0d1524]">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#fe901d] text-white text-sm font-bold">
-                    2
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-slate-900 dark:text-slate-100">Meta Link</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider",
-                      statusPillStyles.connect,
-                    )}
-                  >
-                    Connect
+            <SetupCard
+              eyebrow="Step 2"
+              icon={<ClipboardCheck className="h-5 w-5" />}
+              title="API Readiness"
+            >
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Meta Business Manager ID
                   </span>
-                </div>
-                <div className="px-5 pb-5 pt-5">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {/* Left card: Business Manager ID */}
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-[#111827]">
-                      <label className="block text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-2">
-                        Business Manager ID
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g., 123456789"
-                        value={businessManagerId}
-                        onChange={(e) => setBusinessManagerId(e.target.value)}
-                        className={cn(
-                          "h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm outline-none focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20",
-                          "dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100",
-                        )}
-                      />
-                    </div>
-
-                    {/* Right card: Connect button */}
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col items-center justify-center dark:border-white/10 dark:bg-[#111827]">
-                      <Button
-                        onClick={handleConnectMeta}
-                        disabled={isSaving || metaConnected}
-                        className="w-full bg-[#fe901d] hover:bg-[#e67e0d] text-white"
-                      >
-                        {metaConnected ? (
-                          <>
-                            <CheckCircle2 className="mr-2 h-4 w-4" />
-                            Connected
-                          </>
-                        ) : isSaving ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          <>
-                            <Globe className="mr-2 h-4 w-4" />
-                            Connect Meta
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Step 3: Verification */}
-              <div className="overflow-hidden rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <div className="flex items-center gap-3.5 border-b border-[#e8e2d8] bg-white px-5 py-4.5 dark:border-white/10 dark:bg-[#0d1524]">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#fe901d] text-white text-sm font-bold">
-                    3
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-slate-900 dark:text-slate-100">Verification</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider",
-                      statusPillStyles.review,
-                    )}
-                  >
-                    Review
-                  </span>
-                </div>
-                <div className="px-5 pb-5 pt-5">
-                  <div
-                    onClick={handleFileUpload}
-                    role="button"
-                    tabIndex={0}
-                    className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center cursor-pointer transition hover:border-[#fe901d] hover:bg-[#fe901d]/5 dark:border-white/20 dark:bg-[#111827]"
-                  >
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#fe901d]/10 text-[#fe901d] mx-auto">
-                      <Upload className="h-6 w-6" strokeWidth={2} />
-                    </div>
-                    <p className="mt-3 text-sm font-bold text-slate-900 dark:text-slate-100">
-                      Upload business documents
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                      Certificate or license required. Click to upload
-                    </p>
-                  </div>
-
-                  {uploadedDocs.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      {uploadedDocs.map((doc) => (
-                        <div
-                          key={doc}
-                          className="flex items-center gap-3 rounded-lg border border-[#e8e2d8] bg-slate-50 p-3 dark:border-white/10 dark:bg-[#111827]"
-                        >
-                          <FileText className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                          <span className="text-sm text-slate-900 dark:text-slate-100">{doc}</span>
-                          <button
-                            onClick={() => handleRemoveDoc(doc)}
-                            className="ml-auto text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Step 4: Status */}
-              <div className="overflow-hidden rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <div className="flex items-center gap-3.5 border-b border-[#e8e2d8] bg-white px-5 py-4.5 dark:border-white/10 dark:bg-[#0d1524]">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#fe901d] text-white text-sm font-bold">
-                    4
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-bold text-slate-900 dark:text-slate-100">Status</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider",
-                      apiStatusColor,
-                    )}
-                  >
-                    {apiStatusText}
-                  </span>
-                </div>
-                <div className="px-5 pb-5 pt-5">
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                    Your API verification status. Once approved, you can start sending messages at scale.
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      updateForm("businessManagerId", event.target.value)
+                    }
+                    placeholder="Optional, but helpful"
+                    value={form.businessManagerId}
+                  />
+                </label>
+                <div className="rounded-lg border border-white/10 bg-[#0b1324] p-4">
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Current QR
                   </p>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setApiStatus("pending")}
-                      className={apiStatus === "pending" ? "ring-2 ring-[#fe901d]" : ""}
-                    >
-                      Mark Pending
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setApiStatus("approved")}
-                      className={apiStatus === "approved" ? "ring-2 ring-[#fe901d]" : ""}
-                    >
-                      Mark Approved
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setApiStatus("rejected")}
-                      className={apiStatus === "rejected" ? "ring-2 ring-[#fe901d]" : ""}
-                    >
-                      Mark Rejected
-                    </Button>
-                  </div>
+                  <p className="mt-2 text-sm font-bold text-white">
+                    {isLoading
+                      ? "Checking..."
+                      : workspaceState?.qr.connected
+                        ? "Connected"
+                        : "Not connected"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    QR can stay live during API review.
+                  </p>
                 </div>
               </div>
-            </div>
-
-            {/* RIGHT COLUMN: Sidebar cards */}
-            <div className="space-y-6">
-              {/* Quick Summary Card */}
-              <div className="rounded-2xl border border-[#e8e2d8] bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <h3 className="font-bold text-slate-900 dark:text-slate-100 mb-4">Quick Summary</h3>
-                <div className="rounded-lg bg-slate-50 p-3 font-mono text-xs overflow-x-auto dark:bg-[#111827] dark:text-slate-300">
-                  <div className="text-slate-600 dark:text-slate-400">route: /whatsapp/setup</div>
-                  <div className="text-slate-600 dark:text-slate-400">whatsapp_mode: official</div>
-                  <div className="text-slate-600 dark:text-slate-400">
-                    api_status: {apiStatus}
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {[
+                  "Business website is live",
+                  "Display name is decided",
+                  "WhatsApp number is available",
+                  "Message templates may be required",
+                ].map((item) => (
+                  <div
+                    key={item}
+                    className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0b1324] px-3 py-2.5 text-sm font-medium text-slate-200"
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    {item}
                   </div>
-                  <div className="text-slate-600 dark:text-slate-400">
-                    qr_connected: {metaConnected ? "true" : "false"}
-                  </div>
-                </div>
+                ))}
               </div>
+            </SetupCard>
 
-              {/* What Users Will See Card */}
-              <div className="rounded-2xl border border-[#e8e2d8] bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <h3 className="font-bold text-slate-900 dark:text-slate-100 mb-4">
-                  What Users Will See
-                </h3>
-                <ul className="space-y-3">
-                  <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-700 dark:text-slate-300">
-                      Send 100+ messages per day
-                    </span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-700 dark:text-slate-300">
-                      Green checkmark for verified business
-                    </span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <span className="text-sm text-slate-700 dark:text-slate-300">
-                      24/7 delivery guarantees
-                    </span>
-                  </li>
-                </ul>
+            <SetupCard
+              eyebrow="Step 3"
+              icon={<MessageSquareText className="h-5 w-5" />}
+              title="Messaging Plan"
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Expected volume
+                  </span>
+                  <select
+                    className={selectClass}
+                    onChange={(event) =>
+                      updateForm("dailyVolume", event.target.value)
+                    }
+                    value={form.dailyVolume}
+                  >
+                    <option>Under 500 messages/day</option>
+                    <option>1,000 - 10,000 messages/day</option>
+                    <option>10,000 - 50,000 messages/day</option>
+                    <option>50,000+ messages/day</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                    Main use case
+                  </span>
+                  <input
+                    className={inputClass}
+                    onChange={(event) =>
+                      updateForm("useCase", event.target.value)
+                    }
+                    placeholder="Broadcasts, support, follow-ups..."
+                    value={form.useCase}
+                  />
+                </label>
               </div>
-
-              {/* Finish Card */}
-              <div className="rounded-2xl border border-[#e8e2d8] bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-                <Button
-                  onClick={handleSubmit}
-                  disabled={isSaving}
-                  className="w-full bg-[#fe901d] hover:bg-[#e68018] text-white font-bold"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="mr-2 h-4 w-4" />
-                      Submit for Review and Continue
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
+              <label className="mt-4 block">
+                <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+                  Example first message
+                </span>
+                <textarea
+                  className={textareaClass}
+                  onChange={(event) =>
+                    updateForm("templateExample", event.target.value)
+                  }
+                  value={form.templateExample}
+                />
+              </label>
+            </SetupCard>
           </div>
+
+          <aside className="space-y-5">
+            <section className="rounded-xl border border-white/10 bg-[#101826] p-5">
+              <p className="text-sm font-bold text-white">What happens next</p>
+              <div className="mt-4 space-y-4">
+                {[
+                  "QuicReply reviews the business and phone details.",
+                  "Meta requirements and template needs are confirmed.",
+                  "QR mode continues while the API path is prepared.",
+                  "Once approved, the workspace can switch to Official API mode.",
+                ].map((item, index) => (
+                  <div key={item} className="flex gap-3">
+                    <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#fe901d] text-xs font-bold text-white">
+                      {index + 1}
+                    </div>
+                    <p className="text-sm leading-6 text-slate-300">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-white/10 bg-[#101826] p-5">
+              <p className="text-sm font-bold text-white">Scale benefits</p>
+              <div className="mt-4 space-y-3">
+                {[
+                  {
+                    icon: <Phone className="h-4 w-4" />,
+                    text: "10,000+ messages/day after approval",
+                  },
+                  {
+                    icon: <Globe2 className="h-4 w-4" />,
+                    text: "Templates for compliant broadcasts",
+                  },
+                  {
+                    icon: <ShieldCheck className="h-4 w-4" />,
+                    text: "Verified business identity path",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.text}
+                    className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#0b1324] px-3 py-3 text-sm font-medium text-slate-200"
+                  >
+                    <span className="text-[#fe901d]">{item.icon}</span>
+                    {item.text}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <Button
+              className="w-full gap-2"
+              disabled={isSaving}
+              onClick={handleSubmit}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="h-4 w-4" />
+              )}
+              Submit API Setup Request
+            </Button>
+          </aside>
+        </div>
       </div>
     </UserLayout>
   );

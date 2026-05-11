@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
-  Copy,
   Loader2,
   MessageSquare,
   QrCode,
@@ -14,7 +13,6 @@ import {
   Send,
   ShieldCheck,
   Unplug,
-  Webhook,
 } from "lucide-react";
 import {
   disconnectWhatsAppQr,
@@ -24,7 +22,6 @@ import {
   sendWhatsAppTestMessage,
   startWhatsAppQrHandshake,
   updateJenniferStatus,
-  updateWhatsAppWebhookSettings,
   useQuery,
 } from "wasp/client/operations";
 import UserLayout from "./layout/UserLayout";
@@ -227,9 +224,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     "Hi, this is a QuicReply test message.",
   );
   const [isSendingTestMessage, setIsSendingTestMessage] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [webhookEnabled, setWebhookEnabled] = useState(false);
-  const [isSavingWebhook, setIsSavingWebhook] = useState(false);
   const [isQrPreviewOpen, setIsQrPreviewOpen] = useState(false);
   const pollInFlightRef = useRef(false);
 
@@ -244,13 +238,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
       setMessageLogs(messageLogsQuery.data as WhatsAppMessageLog[]);
     }
   }, [messageLogsQuery.data]);
-
-  useEffect(() => {
-    if (workspaceState?.webhook) {
-      setWebhookUrl(workspaceState.webhook.inboundUrl ?? "");
-      setWebhookEnabled(workspaceState.webhook.enabled);
-    }
-  }, [workspaceState?.webhook?.enabled, workspaceState?.webhook?.inboundUrl]);
 
   useEffect(() => {
     if (
@@ -326,20 +313,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     qrState?.deviceInfo && !qrState.deviceInfo.startsWith("quicreply-")
       ? qrState.deviceInfo
       : null;
-  const backendWebhookUrl = useMemo(() => {
-    if (typeof window === "undefined") {
-      return "/webhooks/evolution/whatsapp";
-    }
-
-    return `${window.location.origin}/webhooks/evolution/whatsapp`;
-  }, []);
-  const n8nReplyCallbackUrl = useMemo(() => {
-    if (typeof window === "undefined") {
-      return "/webhooks/n8n/whatsapp/reply";
-    }
-
-    return `${window.location.origin}/webhooks/n8n/whatsapp/reply`;
-  }, []);
 
   async function handleStartQrHandshake() {
     setIsStartingQr(true);
@@ -491,63 +464,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
       });
     } finally {
       setIsSendingTestMessage(false);
-    }
-  }
-
-  async function handleSaveWebhookSettings() {
-    setIsSavingWebhook(true);
-
-    try {
-      const nextState = (await updateWhatsAppWebhookSettings({
-        inboundUrl: webhookUrl,
-        enabled: webhookEnabled,
-      })) as WhatsAppWorkspaceState;
-      setWorkspaceState(nextState);
-      toast({
-        title: "Webhook settings saved",
-        description:
-          "Inbound forwarding settings are saved on the organization record.",
-      });
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Could not save webhook settings",
-        description: err?.message || "Please try again.",
-      });
-    } finally {
-      setIsSavingWebhook(false);
-    }
-  }
-
-  async function handleCopyBackendWebhookUrl() {
-    try {
-      await navigator.clipboard.writeText(backendWebhookUrl);
-      toast({
-        title: "Webhook URL copied",
-        description: "Paste this URL into the Evolution API webhook settings.",
-      });
-    } catch {
-      toast({
-        variant: "destructive",
-        title: "Could not copy URL",
-        description: "Please copy the webhook URL manually.",
-      });
-    }
-  }
-
-  async function handleCopyN8nReplyCallbackUrl() {
-    try {
-      await navigator.clipboard.writeText(n8nReplyCallbackUrl);
-      toast({
-        title: "Reply callback copied",
-        description: "Paste this URL into n8n when sending AI replies.",
-      });
-    } catch {
-      toast({
-        variant: "destructive",
-        title: "Could not copy URL",
-        description: "Please copy the reply callback URL manually.",
-      });
     }
   }
 
@@ -706,7 +622,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
           ))}
         </div>
 
-        {/* ── Main Grid: Left (Mode Cards + Jennifer + Webhook) + Right Sidebar ── */}
+        {/* ── Main Grid: Left (Mode Cards + Jennifer) + Right Sidebar ── */}
         <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
           {/* LEFT COLUMN */}
           <div className="min-w-0 space-y-5">
@@ -1053,147 +969,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               </div>
             </div>
 
-            {/* Webhook Settings */}
-            <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
-              <div className="flex items-center gap-3 border-b border-[#f3f4f6] px-5 py-4 dark:border-white/10">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#fe901d]/10">
-                  <Webhook className="h-4 w-4 text-[#fe901d]" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-[#182235] dark:text-white">
-                    Webhook Settings
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    Forward inbound messages to n8n
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-4 px-5 py-4">
-                {/* Evolution webhook target */}
-                <div
-                  className={cn(
-                    "rounded-lg border p-4",
-                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
-                  )}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p
-                        className={cn(
-                          "text-xs font-semibold uppercase tracking-wider",
-                          softTextClass,
-                        )}
-                      >
-                        Evolution webhook target
-                      </p>
-                      <p className={cn("mt-0.5 text-xs", softTextClass)}>
-                        Add this URL in Evolution API so WhatsApp events enter
-                        QuicReply before n8n.
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className={cn("shrink-0", outlineButtonClass)}
-                      onClick={handleCopyBackendWebhookUrl}
-                    >
-                      <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy URL
-                    </Button>
-                  </div>
-                  <code className="mt-3 block overflow-x-auto rounded-lg border border-[#e6e0d6] bg-white px-3 py-2 text-xs text-[#344054] dark:border-white/10 dark:bg-[#070b14] dark:text-slate-300">
-                    {backendWebhookUrl}
-                  </code>
-                </div>
-                {/* n8n reply callback */}
-                <div
-                  className={cn(
-                    "rounded-lg border p-4",
-                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
-                  )}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p
-                        className={cn(
-                          "text-xs font-semibold uppercase tracking-wider",
-                          softTextClass,
-                        )}
-                      >
-                        n8n reply callback
-                      </p>
-                      <p className={cn("mt-0.5 text-xs", softTextClass)}>
-                        n8n uses this URL to ask QuicReply to deliver the final
-                        AI response through Evolution.
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className={cn("shrink-0", outlineButtonClass)}
-                      onClick={handleCopyN8nReplyCallbackUrl}
-                    >
-                      <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy URL
-                    </Button>
-                  </div>
-                  <code className="mt-3 block overflow-x-auto rounded-lg border border-[#e6e0d6] bg-white px-3 py-2 text-xs text-[#344054] dark:border-white/10 dark:bg-[#070b14] dark:text-slate-300">
-                    {n8nReplyCallbackUrl}
-                  </code>
-                </div>
-                {/* n8n inbound URL input */}
-                <label className="block">
-                  <span
-                    className={cn(
-                      "text-xs font-semibold uppercase tracking-wider",
-                      softTextClass,
-                    )}
-                  >
-                    n8n inbound webhook URL
-                  </span>
-                  <input
-                    className="mt-2 h-10 w-full rounded-lg border border-[#e8e2d8] bg-white px-3 text-sm text-[#182235] outline-none transition placeholder:text-slate-400 focus:border-[#fe901d] focus:ring-2 focus:ring-[#fe901d]/20 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-600"
-                    onChange={(e) => setWebhookUrl(e.target.value)}
-                    placeholder="https://n8n.example.com/webhook/..."
-                    value={webhookUrl}
-                  />
-                </label>
-                {/* Enable forwarding toggle */}
-                <div
-                  className={cn(
-                    "flex items-center justify-between gap-4 rounded-lg border p-4",
-                    "border-[#f3f4f6] bg-[#f9fafb] dark:border-white/5 dark:bg-white/5",
-                  )}
-                >
-                  <div>
-                    <p className={cn("text-sm font-semibold", strongTextClass)}>
-                      Enable forwarding
-                    </p>
-                    <p className={cn("mt-0.5 text-xs", softTextClass)}>
-                      Keep disabled until n8n is ready to receive production
-                      messages.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={webhookEnabled}
-                    onCheckedChange={setWebhookEnabled}
-                  />
-                </div>
-                <Button
-                  className="w-full"
-                  disabled={isSavingWebhook}
-                  onClick={handleSaveWebhookSettings}
-                >
-                  {isSavingWebhook ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving…
-                    </>
-                  ) : (
-                    "Save webhook settings"
-                  )}
-                </Button>
-              </div>
-            </div>
-
             {/* Message Logs */}
             <div className="rounded-xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] dark:shadow-none">
               <div className="flex items-center justify-between border-b border-[#f3f4f6] px-5 py-4 dark:border-white/10">
@@ -1400,13 +1175,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                     ok: apiStatus === "approved",
                   },
                   {
-                    label: "Webhooks",
-                    status: workspaceState?.webhook.enabled
-                      ? "Listening"
-                      : "Disabled",
-                    ok: workspaceState?.webhook.enabled ?? false,
-                  },
-                  {
                     label: "AI Engine",
                     status: workspaceState?.isAiActive ? "Active" : "Muted",
                     ok: workspaceState?.isAiActive ?? false,
@@ -1507,11 +1275,6 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                     icon: <ShieldCheck className="h-4 w-4 text-[#fe901d]" />,
                     label: "Set Up API",
                     href: "/whatsapp/setup",
-                  },
-                  {
-                    icon: <Webhook className="h-4 w-4 text-[#fe901d]" />,
-                    label: "Configure Webhooks",
-                    onClick: () => {},
                   },
                   {
                     icon: <Bot className="h-4 w-4 text-[#fe901d]" />,

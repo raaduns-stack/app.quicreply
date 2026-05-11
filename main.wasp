@@ -314,6 +314,42 @@ action updateWhatsAppWebhookSettings {
   auth: true
 }
 
+query getContacts {
+  fn: import { getContacts } from "@src/contacts/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+action createContact {
+  fn: import { createContact } from "@src/contacts/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+action updateContact {
+  fn: import { updateContact } from "@src/contacts/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+action deleteContact {
+  fn: import { deleteContact } from "@src/contacts/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+query getCampaigns {
+  fn: import { getCampaigns } from "@src/campaigns/operations",
+  entities: [User, Organization, Campaign],
+  auth: true
+}
+
+action createCampaign {
+  fn: import { createCampaign } from "@src/campaigns/operations",
+  entities: [User, Organization, Contact, Campaign, CampaignRecipient],
+  auth: true
+}
+
 action disconnectWhatsAppQr {
   fn: import { disconnectWhatsAppQr } from "@src/whatsapp/operations",
   entities: [User, Organization],

@@ -34,6 +34,13 @@ export type WhatsAppMessageLog = {
   source: string | null;
 };
 
+export type WhatsAppSendMessageResult = {
+  success: true;
+  providerMessageId: string | null;
+  status: string | null;
+  rawResponse: unknown;
+};
+
 type EvolutionProviderInput = {
   instanceName: string;
 };
@@ -58,7 +65,18 @@ const QR_IMAGE_KEYS = [
 const QR_PAYLOAD_KEYS = ["code", "qr", "qrcode", "qrCode", "pairingCode"];
 
 function getWhatsAppProvider() {
-  return env.WHATSAPP_PROVIDER ?? "mock";
+  const provider =
+    env.WHATSAPP_PROVIDER ??
+    (process.env.NODE_ENV === "production" ? "evolution" : "mock");
+
+  if (process.env.NODE_ENV === "production" && provider === "mock") {
+    throw new HttpError(
+      500,
+      "Mock WhatsApp provider is disabled in production. Set WHATSAPP_PROVIDER=evolution.",
+    );
+  }
+
+  return provider;
 }
 
 function normalizeBaseUrl(value: string | undefined) {
@@ -328,6 +346,32 @@ async function evolutionRequest<T>(
   return body as T;
 }
 
+async function tryEvolutionRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T | { ok: false; error: unknown; status: number | null }> {
+  try {
+    return await evolutionRequest<T>(path, options);
+  } catch (error) {
+    return {
+      ok: false,
+      error,
+      status: getHttpErrorStatus(error),
+    };
+  }
+}
+
+function isFailedEvolutionAttempt(
+  value: unknown,
+): value is { ok: false; error: unknown; status: number | null } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "ok" in value &&
+    (value as { ok?: unknown }).ok === false
+  );
+}
+
 function safelyParseJson(text: string) {
   try {
     return JSON.parse(text);
@@ -347,6 +391,20 @@ function normalizePhoneNumber(value: string) {
   }
 
   return normalizedValue;
+}
+
+function getProviderMessageId(value: unknown) {
+  const record = asRecord(value);
+  const key = asRecord(record?.key);
+
+  return (
+    findFirstStringByKeys(key, ["id"]) ??
+    findFirstStringByKeys(record, ["messageId", "id"])
+  );
+}
+
+function getProviderMessageStatus(value: unknown) {
+  return findFirstStringByKeys(value, ["status"]);
 }
 
 function getTimestampIso(value: unknown) {
@@ -732,28 +790,55 @@ export async function fetchWhatsAppMessageLogs(
 
 export async function sendWhatsAppTestMessage(
   input: EvolutionProviderInput & { phoneNumber: string; message: string },
-) {
+): Promise<WhatsAppSendMessageResult> {
   const text = input.message.trim();
   if (!text) {
     throw new HttpError(400, "Enter a test message before sending.");
   }
 
   if (getWhatsAppProvider() !== "evolution") {
-    return { success: true as const };
+    return {
+      success: true,
+      providerMessageId: null,
+      status: "MOCK",
+      rawResponse: null,
+    };
   }
 
-  await evolutionRequest<unknown>(
-    `/message/sendText/${encodeURIComponent(input.instanceName)}`,
-    {
+  const number = normalizePhoneNumber(input.phoneNumber);
+  const path = `/message/sendText/${encodeURIComponent(input.instanceName)}`;
+  const plainTextResponse = await tryEvolutionRequest<unknown>(path, {
+    method: "POST",
+    body: JSON.stringify({
+      number,
+      text,
+      linkPreview: false,
+    }),
+  });
+
+  let response: unknown = plainTextResponse;
+
+  if (isFailedEvolutionAttempt(plainTextResponse)) {
+    if (plainTextResponse.status !== 400) {
+      throw plainTextResponse.error;
+    }
+
+    response = await evolutionRequest<unknown>(path, {
       method: "POST",
       body: JSON.stringify({
-        number: normalizePhoneNumber(input.phoneNumber),
-        text,
+        number,
+        textMessage: { text },
+        linkPreview: false,
       }),
-    },
-  );
+    });
+  }
 
-  return { success: true as const };
+  return {
+    success: true,
+    providerMessageId: getProviderMessageId(response),
+    status: getProviderMessageStatus(response),
+    rawResponse: response,
+  };
 }
 
 export async function sendWhatsAppTextMessage(

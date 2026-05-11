@@ -8,135 +8,230 @@ generator client {
 }
 
 model User {
-  id                        String          @id @default(uuid())
-  createdAt                 DateTime        @default(now())
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
 
-  email                     String?         @unique
-  username                  String?         @unique
-  firstName                 String?
-  lastName                  String?
-  whatsapp                  String?
-  onboardingCompleted       Boolean         @default(false)
-  onboardingStep            Int             @default(1)
-  isAdmin                   Boolean         @default(false)
+  email               String? @unique
+  username            String? @unique
+  firstName           String?
+  lastName            String?
+  whatsapp            String?
+  onboardingCompleted Boolean @default(false)
+  onboardingStep      Int     @default(1)
+  isAdmin             Boolean @default(false)
 
-  paymentProcessorUserId    String?         @unique
-  lemonSqueezyCustomerPortalUrl String?     // You can delete this if you're not using Lemon Squeezy as your payments processor.
-  subscriptionStatus        String?         // 'active', 'cancel_at_period_end', 'past_due', 'deleted'
-  subscriptionPlan          String?         // 'hobby', 'pro'
-  datePaid                  DateTime?
-  credits                   Int             @default(3)
+  paymentProcessorUserId        String?   @unique
+  lemonSqueezyCustomerPortalUrl String? // You can delete this if you're not using Lemon Squeezy as your payments processor.
+  subscriptionStatus            String? // 'active', 'cancel_at_period_end', 'past_due', 'deleted'
+  subscriptionPlan              String? // 'hobby', 'pro'
+  datePaid                      DateTime?
+  credits                       Int       @default(3)
 
-  organization              Organization?
-  contactFormMessages       ContactFormMessage[]
+  organization        Organization?
+  contactFormMessages ContactFormMessage[]
 }
 
 model Organization {
-  id                        String          @id @default(uuid())
-  createdAt                 DateTime        @default(now())
-  updatedAt                 DateTime        @updatedAt
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user                      User            @relation(fields: [userId], references: [id])
-  userId                    String          @unique
+  user   User   @relation(fields: [userId], references: [id])
+  userId String @unique
 
-  name                      String?
-  phoneNumber               String?
-  industry                  String?
-  country                   String?
-  primaryGoal               String?
-  trafficSources            String[]
-  flow                      String?         @default("sales")
-  whatsappMode              String?         @default("qr")
-  qrConnected               Boolean         @default(false)
-  apiStatus                 String?         @default("none")
-  isAiActive                Boolean         @default(true)
-  qrCodeData                String?
-  qrSessionId               String?
-  qrStatus                  String?         @default("disconnected")
-  qrLastSeen                DateTime?
-  qrStatusCheckedAt         DateTime?
-  qrDeviceInfo              String?
-  evolutionInstanceName     String?
-  evolutionInstanceId       String?
-  qrLastError               String?
-  apiPhoneNumber            String?
-  apiMessagingLimit         String?
-  settings                  Json?
-  businessDescription       String?
-  productsServices          String?
-  firstAiMessage            String?
-  whatsappMessageLogs       WhatsAppMessageLog[]
+  name                  String?
+  phoneNumber           String?
+  industry              String?
+  country               String?
+  primaryGoal           String?
+  trafficSources        String[]
+  flow                  String?              @default("sales")
+  whatsappMode          String?              @default("qr")
+  qrConnected           Boolean              @default(false)
+  apiStatus             String?              @default("none")
+  isAiActive            Boolean              @default(true)
+  qrCodeData            String?
+  qrSessionId           String?
+  qrStatus              String?              @default("disconnected")
+  qrLastSeen            DateTime?
+  qrStatusCheckedAt     DateTime?
+  qrDeviceInfo          String?
+  evolutionInstanceName String?
+  evolutionInstanceId   String?
+  qrLastError           String?
+  apiPhoneNumber        String?
+  apiMessagingLimit     String?
+  settings              Json?
+  businessDescription   String?
+  productsServices      String?
+  firstAiMessage        String?
+  whatsappMessageLogs   WhatsAppMessageLog[]
+  contacts              Contact[]
+  campaigns             Campaign[]
+}
+
+model Contact {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  name                 String
+  phone                String
+  email                String?
+  source               String              @default("WhatsApp")
+  status               String              @default("new-lead")
+  tags                 String[]            @default([])
+  assignedTo           String?
+  notes                String?
+  lastMessage          String?
+  lastMessageAt        DateTime?
+  lastMessageDirection String?
+  avatarColor          String?
+  campaignRecipients   CampaignRecipient[]
+
+  @@unique([organizationId, phone])
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, status])
+  @@index([organizationId, source])
+}
+
+model Campaign {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  name           String
+  subtitle       String?
+  message        String
+  status         String    @default("draft")
+  audienceFilter Json?
+  audienceCount  Int       @default(0)
+  sentCount      Int       @default(0)
+  deliveredCount Int       @default(0)
+  failedCount    Int       @default(0)
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+
+  recipients CampaignRecipient[]
+  events     CampaignMessageEvent[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+}
+
+model CampaignRecipient {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+  contact    Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId  String?
+
+  phone             String
+  name              String?
+  status            String    @default("queued")
+  providerMessageId String?
+  lastError         String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+
+  @@unique([campaignId, phone])
+  @@index([campaignId, status])
+  @@index([contactId])
+}
+
+model CampaignMessageEvent {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId String
+
+  recipientId       String?
+  eventType         String
+  providerMessageId String?
+  rawPayload        Json?
+
+  @@index([campaignId, createdAt])
 }
 
 model WhatsAppMessageLog {
-  id                        String          @id @default(uuid())
-  createdAt                 DateTime        @default(now())
-  updatedAt                 DateTime        @updatedAt
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  organization              Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  organizationId            String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
 
-  instanceName              String?
-  direction                 String
-  from                      String?
-  to                        String?
-  pushName                  String?
-  messageType               String?
-  text                      String?
-  status                    String?
-  source                    String?
-  providerEvent             String?
-  providerMessageId         String?
-  rawPayload                Json?
+  instanceName      String?
+  direction         String
+  from              String?
+  to                String?
+  pushName          String?
+  messageType       String?
+  text              String?
+  status            String?
+  source            String?
+  providerEvent     String?
+  providerMessageId String?
+  rawPayload        Json?
 
   @@index([organizationId, createdAt])
   @@index([instanceName, createdAt])
 }
 
-
 model DailyStats {
-  id                               Int             @id @default(autoincrement())
-  date                             DateTime        @default(now()) @unique
+  id   Int      @id @default(autoincrement())
+  date DateTime @unique @default(now())
 
-  totalViews                       Int             @default(0)
-  prevDayViewsChangePercent        String          @default("0")
-  userCount                        Int             @default(0)
-  paidUserCount                    Int             @default(0)
-  userDelta                        Int             @default(0)
-  paidUserDelta                    Int             @default(0)
-  totalRevenue                     Float           @default(0)
-  totalProfit                      Float           @default(0)
+  totalViews                Int    @default(0)
+  prevDayViewsChangePercent String @default("0")
+  userCount                 Int    @default(0)
+  paidUserCount             Int    @default(0)
+  userDelta                 Int    @default(0)
+  paidUserDelta             Int    @default(0)
+  totalRevenue              Float  @default(0)
+  totalProfit               Float  @default(0)
 
-  sources                          PageViewSource[]
+  sources PageViewSource[]
 }
 
 model PageViewSource {
+  name String
+  date DateTime @default(now())
+
+  dailyStats   DailyStats? @relation(fields: [dailyStatsId], references: [id])
+  dailyStatsId Int?
+
+  visitors Int
+
   @@id([date, name])
-  name                     String
-  date                     DateTime        @default(now())
-
-  dailyStats               DailyStats?     @relation(fields: [dailyStatsId], references: [id])
-  dailyStatsId             Int?
-
-  visitors                 Int
 }
 
 model Logs {
-  id                       Int             @id @default(autoincrement())
-  createdAt                DateTime        @default(now())
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
 
-  message                  String
-  level                    String
+  message String
+  level   String
 }
 
 model ContactFormMessage {
-  id                        String          @id @default(uuid())
-  createdAt                 DateTime        @default(now())
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
 
-  user                      User            @relation(fields: [userId], references: [id])
-  userId                    String
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
 
-  content                   String
-  isRead                    Boolean         @default(false)
-  repliedAt                 DateTime?
+  content   String
+  isRead    Boolean   @default(false)
+  repliedAt DateTime?
 }

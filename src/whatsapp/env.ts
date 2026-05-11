@@ -1,7 +1,7 @@
 import * as z from "zod";
 
 export const whatsappEnvSchema = z.object({
-  WHATSAPP_PROVIDER: z.enum(["mock", "evolution"]).default("mock"),
+  WHATSAPP_PROVIDER: z.enum(["mock", "evolution"]).optional(),
   EVOLUTION_API_BASE_URL: z.string().optional(),
   EVOLUTION_API_KEY: z.string().optional(),
   WHATSAPP_INBOUND_WEBHOOK_SECRET: z.string().optional(),

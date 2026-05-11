@@ -93,6 +93,13 @@ const startWhatsAppQrHandshakeArgsSchema = z
 
 const completeOfficialApiSetupArgsSchema = z.object({
   apiPhoneNumber: z.string().trim().optional(),
+  businessName: z.string().trim().max(160).optional(),
+  website: z.string().trim().max(300).optional(),
+  country: z.string().trim().max(120).optional(),
+  businessManagerId: z.string().trim().max(160).optional(),
+  dailyVolume: z.string().trim().max(120).optional(),
+  useCase: z.string().trim().max(1000).optional(),
+  templateExample: z.string().trim().max(1000).optional(),
 });
 
 const sendWhatsAppTestMessageArgsSchema = z.object({
@@ -185,6 +192,26 @@ function mergeWebhookSettings(
   nextSettings.whatsappWebhook = {
     inboundUrl: args.inboundUrl?.trim() || null,
     enabled: args.enabled,
+  };
+
+  return nextSettings;
+}
+
+function mergeApiSetupRequestSettings(
+  settings: unknown,
+  args: z.infer<typeof completeOfficialApiSetupArgsSchema>,
+) {
+  const nextSettings = normalizeSettings(settings);
+
+  nextSettings.whatsappApiSetup = {
+    businessName: args.businessName?.trim() || null,
+    website: args.website?.trim() || null,
+    country: args.country?.trim() || null,
+    businessManagerId: args.businessManagerId?.trim() || null,
+    dailyVolume: args.dailyVolume?.trim() || null,
+    useCase: args.useCase?.trim() || null,
+    templateExample: args.templateExample?.trim() || null,
+    submittedAt: new Date().toISOString(),
   };
 
   return nextSettings;
@@ -570,9 +597,11 @@ export const sendWhatsAppTestMessage = async (
       to: args.phoneNumber,
       messageType: "conversation",
       text: args.message,
-      status: "SENT",
+      status: result.status ?? "SENT",
       source: "app",
       providerEvent: "test_message",
+      providerMessageId: result.providerMessageId,
+      rawPayload: result.rawResponse as any,
     },
   });
 
@@ -650,24 +679,29 @@ export const completeOfficialApiSetup = async (
   );
 
   const organization = await findOrganization(userId);
-  const hasQr = organization?.qrConnected ?? false;
 
   await prisma.$transaction(async (tx) => {
     await tx.organization.upsert({
       where: { userId },
       update: {
-        whatsappMode: hasQr ? "both" : "api",
-        apiStatus: "approved",
+        whatsappMode: organization?.whatsappMode ?? "qr",
+        apiStatus: "pending",
         apiPhoneNumber:
           args.apiPhoneNumber || organization?.apiPhoneNumber || null,
-        apiMessagingLimit: organization?.apiMessagingLimit ?? "10,000 msgs/day",
+        apiMessagingLimit:
+          organization?.apiMessagingLimit ?? "10,000+ msgs/day after approval",
+        settings: mergeApiSetupRequestSettings(
+          organization?.settings,
+          args,
+        ) as any,
       },
       create: {
         userId,
-        whatsappMode: "api",
-        apiStatus: "approved",
+        whatsappMode: "qr",
+        apiStatus: "pending",
         apiPhoneNumber: args.apiPhoneNumber || null,
-        apiMessagingLimit: "10,000 msgs/day",
+        apiMessagingLimit: "10,000+ msgs/day after approval",
+        settings: mergeApiSetupRequestSettings(null, args) as any,
       },
     });
 
