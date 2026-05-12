@@ -632,7 +632,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       form.setValue("whatsappMode", "api", { shouldDirty: true });
       form.setValue("apiStatus", "pending", { shouldDirty: true });
       form.setValue("qrConnected", false, { shouldDirty: true });
-      const saved = await persistStep(4, false, 4, {
+      const saved = await persistStep(5, false, 4, {
         whatsappMode: "api",
         apiStatus: "pending",
         qrConnected: false,
@@ -640,7 +640,13 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       if (!saved) {
         return;
       }
-      navigate("/whatsapp/setup");
+      toast({
+        title: "Official API preference saved",
+        description:
+          "Finish onboarding now. You can complete the detailed API setup from WhatsApp after onboarding.",
+      });
+      setShowQrFlow(false);
+      setCurrentStep(5);
       return;
     }
 
@@ -1447,7 +1453,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
             {buttonBusy
               ? "Saving..."
               : watchedValues.whatsappMode === "api"
-                ? "Setup Business API"
+                ? "Continue with Official API"
                 : "Continue with QR"}
             {buttonBusy ? (
               <Loader2 className="h-4 w-4 animate-spin" />

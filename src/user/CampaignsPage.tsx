@@ -77,11 +77,11 @@ function CampaignCreateDialog({
   setDraft: React.Dispatch<React.SetStateAction<CampaignDraft>>;
 }) {
   const inputClass =
-    "h-10 border-white/10 bg-[#0b1324] text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324]";
+    "h-10 border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500";
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] border-white/10 bg-[#0d1524] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[560px] sm:rounded-xl">
+      <DialogContent className="w-[calc(100vw-2rem)] border-[#e8e2d8] bg-white text-foreground shadow-2xl shadow-black/10 sm:max-w-[560px] sm:rounded-xl dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100 dark:shadow-black/50">
         <DialogHeader>
           <DialogTitle className="text-xl">Create Campaign</DialogTitle>
           <DialogDescription>
@@ -134,7 +134,7 @@ function CampaignCreateDialog({
               WhatsApp Message <span className="text-destructive">*</span>
             </Label>
             <Textarea
-              className="h-28 resize-none border-white/10 bg-[#0b1324] text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324]"
+              className="h-28 resize-none border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
               placeholder="Write the message customers will receive..."
               value={draft.message}
               onChange={(event) =>
@@ -550,8 +550,8 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Message Preview
                   </p>
-                  <div className="rounded-lg border border-white/10 bg-[#0b1324] p-4">
-                    <p className="text-sm text-slate-100">
+                  <div className="rounded-lg border border-[#e8e2d8] bg-[#f7f8fa] p-4 dark:border-white/10 dark:bg-[#0b1324]">
+                    <p className="text-sm text-foreground dark:text-slate-100">
                       {selectedCampaign.message}
                     </p>
                   </div>

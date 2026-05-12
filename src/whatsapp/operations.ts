@@ -60,6 +60,12 @@ type OrganizationRecord = {
 export type WhatsAppWorkspaceState = {
   whatsappMode: "qr" | "api" | "both";
   isAiActive: boolean;
+  metrics: {
+    totalMessages: number;
+    activeSessions: number;
+    qrUsageToday: number;
+    aiReplies: number;
+  };
   qr: {
     status: WhatsAppQrStatus;
     connected: boolean;
@@ -74,6 +80,27 @@ export type WhatsAppWorkspaceState = {
     status: "none" | "pending" | "approved";
     phoneNumber: string | null;
     messagingLimit: string | null;
+    setupRequest: {
+      legalName: string | null;
+      registrationNumber: string | null;
+      email: string | null;
+      phone: string | null;
+      businessName: string | null;
+      website: string | null;
+      country: string | null;
+      address: string | null;
+      businessManagerId: string | null;
+      metaBusinessName: string | null;
+      displayName: string | null;
+      wabaId: string | null;
+      apiPhoneNumber: string | null;
+      dailyVolume: string | null;
+      useCase: string | null;
+      templateExample: string | null;
+      uploadedDocs: string[];
+      metaAuthorizationRequested: boolean;
+      submittedAt: string | null;
+    } | null;
   };
   webhook: {
     inboundUrl: string | null;
@@ -92,14 +119,24 @@ const startWhatsAppQrHandshakeArgsSchema = z
   .optional();
 
 const completeOfficialApiSetupArgsSchema = z.object({
+  legalName: z.string().trim().max(160).optional(),
+  registrationNumber: z.string().trim().max(160).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  phone: z.string().trim().max(80).optional(),
   apiPhoneNumber: z.string().trim().optional(),
   businessName: z.string().trim().max(160).optional(),
   website: z.string().trim().max(300).optional(),
   country: z.string().trim().max(120).optional(),
+  address: z.string().trim().max(500).optional(),
   businessManagerId: z.string().trim().max(160).optional(),
+  metaBusinessName: z.string().trim().max(160).optional(),
+  displayName: z.string().trim().max(160).optional(),
+  wabaId: z.string().trim().max(160).optional(),
   dailyVolume: z.string().trim().max(120).optional(),
   useCase: z.string().trim().max(1000).optional(),
   templateExample: z.string().trim().max(1000).optional(),
+  uploadedDocs: z.array(z.string().trim().max(240)).optional(),
+  metaAuthorizationRequested: z.boolean().optional(),
 });
 
 const sendWhatsAppTestMessageArgsSchema = z.object({
@@ -204,17 +241,73 @@ function mergeApiSetupRequestSettings(
   const nextSettings = normalizeSettings(settings);
 
   nextSettings.whatsappApiSetup = {
+    legalName: args.legalName?.trim() || null,
+    registrationNumber: args.registrationNumber?.trim() || null,
+    email: args.email?.trim() || null,
+    phone: args.phone?.trim() || null,
     businessName: args.businessName?.trim() || null,
     website: args.website?.trim() || null,
     country: args.country?.trim() || null,
+    address: args.address?.trim() || null,
     businessManagerId: args.businessManagerId?.trim() || null,
+    metaBusinessName: args.metaBusinessName?.trim() || null,
+    displayName: args.displayName?.trim() || null,
+    wabaId: args.wabaId?.trim() || null,
+    apiPhoneNumber: args.apiPhoneNumber?.trim() || null,
     dailyVolume: args.dailyVolume?.trim() || null,
     useCase: args.useCase?.trim() || null,
     templateExample: args.templateExample?.trim() || null,
+    uploadedDocs: args.uploadedDocs ?? [],
+    metaAuthorizationRequested: args.metaAuthorizationRequested === true,
     submittedAt: new Date().toISOString(),
   };
 
   return nextSettings;
+}
+
+function getApiSetupRequestSettings(settings: unknown) {
+  const whatsappApiSetup = normalizeSettings(settings).whatsappApiSetup;
+  const record =
+    whatsappApiSetup &&
+    typeof whatsappApiSetup === "object" &&
+    !Array.isArray(whatsappApiSetup)
+      ? (whatsappApiSetup as Record<string, unknown>)
+      : null;
+
+  if (!record) {
+    return null;
+  }
+
+  const getString = (key: string) =>
+    typeof record[key] === "string" && record[key].trim()
+      ? record[key].trim()
+      : null;
+
+  return {
+    legalName: getString("legalName"),
+    registrationNumber: getString("registrationNumber"),
+    email: getString("email"),
+    phone: getString("phone"),
+    businessName: getString("businessName"),
+    website: getString("website"),
+    country: getString("country"),
+    address: getString("address"),
+    businessManagerId: getString("businessManagerId"),
+    metaBusinessName: getString("metaBusinessName"),
+    displayName: getString("displayName"),
+    wabaId: getString("wabaId"),
+    apiPhoneNumber: getString("apiPhoneNumber"),
+    dailyVolume: getString("dailyVolume"),
+    useCase: getString("useCase"),
+    templateExample: getString("templateExample"),
+    uploadedDocs: Array.isArray(record.uploadedDocs)
+      ? record.uploadedDocs.filter(
+          (item): item is string => typeof item === "string" && !!item.trim(),
+        )
+      : [],
+    metaAuthorizationRequested: record.metaAuthorizationRequested === true,
+    submittedAt: getString("submittedAt"),
+  };
 }
 
 function getConnectedInstanceName(organization: OrganizationRecord | null) {
@@ -233,17 +326,59 @@ function getConnectedInstanceName(organization: OrganizationRecord | null) {
   return organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
 }
 
-function toWorkspaceState(
+async function getWhatsAppMetrics(organizationId: string | null) {
+  if (!organizationId) {
+    return {
+      totalMessages: 0,
+      activeSessions: 0,
+      qrUsageToday: 0,
+      aiReplies: 0,
+    };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [totalMessages, qrUsageToday, aiReplies] = await prisma.$transaction([
+    prisma.whatsAppMessageLog.count({ where: { organizationId } }),
+    prisma.whatsAppMessageLog.count({
+      where: {
+        organizationId,
+        createdAt: { gte: today },
+      },
+    }),
+    prisma.whatsAppMessageLog.count({
+      where: {
+        organizationId,
+        source: "n8n",
+      },
+    }),
+  ]);
+
+  return {
+    totalMessages,
+    activeSessions: 0,
+    qrUsageToday,
+    aiReplies,
+  };
+}
+
+async function toWorkspaceState(
   organization: OrganizationRecord | null,
-): WhatsAppWorkspaceState {
+): Promise<WhatsAppWorkspaceState> {
   const qrStatus = normalizeQrStatus(
     organization?.qrStatus ??
       (organization?.qrConnected ? "connected" : "disconnected"),
   );
+  const metrics = await getWhatsAppMetrics(organization?.id ?? null);
 
   return {
     whatsappMode: normalizeWhatsAppMode(organization?.whatsappMode),
     isAiActive: organization?.isAiActive ?? true,
+    metrics: {
+      ...metrics,
+      activeSessions: organization?.qrConnected ? 1 : 0,
+    },
     qr: {
       status: qrStatus,
       connected: organization?.qrConnected ?? false,
@@ -261,6 +396,7 @@ function toWorkspaceState(
       status: normalizeApiStatus(organization?.apiStatus),
       phoneNumber: organization?.apiPhoneNumber ?? null,
       messagingLimit: organization?.apiMessagingLimit ?? null,
+      setupRequest: getApiSetupRequestSettings(organization?.settings),
     },
     webhook: getWebhookSettings(organization?.settings),
   };

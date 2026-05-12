@@ -207,6 +207,31 @@ export const getContacts = async (
   return contacts.map(toContactDto);
 };
 
+const getContactArgsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const getContact = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<ContactDto | null> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    getContactArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+
+  const contact = await prisma.contact.findUnique({
+    where: {
+      id: args.id,
+      organizationId: organization.id,
+    },
+  });
+
+  return contact ? toContactDto(contact) : null;
+};
+
 export const createContact = async (
   rawArgs: unknown,
   context: any,

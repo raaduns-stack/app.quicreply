@@ -85,156 +85,7 @@ export type Contact = {
   notes?: string;
 };
 
-// ─── Shared mock data (exported so ProfilePage can use it) ────────────────────
-
-export const AVATAR_COLORS = [
-  "linear-gradient(135deg,#6366f1,#8b5cf6)",
-  "linear-gradient(135deg,#10b981,#3b82f6)",
-  "linear-gradient(135deg,#f59e0b,#ef4444)",
-  "linear-gradient(135deg,#3b82f6,#6366f1)",
-  "linear-gradient(135deg,#8b5cf6,#6366f1)",
-  "linear-gradient(135deg,#ec4899,#8b5cf6)",
-  "linear-gradient(135deg,#f59e0b,#10b981)",
-  "linear-gradient(135deg,#10b981,#0ea5e9)",
-  "linear-gradient(135deg,#fe901d,#e98214)",
-];
-
-export const CONTACTS_DATA: Contact[] = [
-  {
-    id: "c1",
-    name: "John Doe",
-    phone: "+234 812 345 6789",
-    source: "Facebook Ad",
-    status: "ai-active",
-    tags: ["Hot", "Buyer"],
-    lastMsg: "Is it still available?",
-    lastMsgTime: "2m ago",
-    assignedTo: "Agent A",
-    avi: "JD",
-    color: AVATAR_COLORS[0],
-    notes: "Very interested in the premium package. Follow up by end of week.",
-  },
-  {
-    id: "c2",
-    name: "Sarah Johnson",
-    phone: "+234 903 456 7890",
-    source: "Instagram",
-    status: "ai-active",
-    tags: ["Warm", "Interested"],
-    lastMsg: "Can you send price list?",
-    lastMsgTime: "5m ago",
-    assignedTo: "Agent B",
-    avi: "SJ",
-    color: AVATAR_COLORS[1],
-    notes: "Needs pricing details before deciding.",
-  },
-  {
-    id: "c3",
-    name: "Mike Brown",
-    phone: "+234 701 234 5678",
-    source: "Landing Page",
-    status: "human-active",
-    tags: ["Hot", "Negotiation"],
-    lastMsg: "I want to buy this today",
-    lastMsgTime: "12m ago",
-    assignedTo: "Agent A",
-    avi: "MB",
-    color: AVATAR_COLORS[2],
-    notes: "Ready to close. Negotiating on delivery terms.",
-  },
-  {
-    id: "c4",
-    name: "Emily Davis",
-    phone: "+234 812 987 6543",
-    source: "Website",
-    status: "ai-active",
-    tags: ["Warm", "Buyer"],
-    lastMsg: "Do you deliver to my area?",
-    lastMsgTime: "18m ago",
-    assignedTo: "Agent C",
-    avi: "ED",
-    color: AVATAR_COLORS[3],
-  },
-  {
-    id: "c5",
-    name: "David Wilson",
-    phone: "+234 809 876 5432",
-    source: "Facebook Ad",
-    status: "needs-attention",
-    tags: ["Cold", "Follow Up"],
-    lastMsg: "Thanks! I will check",
-    lastMsgTime: "30m ago",
-    assignedTo: "Agent B",
-    avi: "DW",
-    color: AVATAR_COLORS[4],
-    notes: "Gone cold. Try re-engaging with a discount offer.",
-  },
-  {
-    id: "c6",
-    name: "Jessica Lee",
-    phone: "+234 901 234 5678",
-    source: "Instagram",
-    status: "ai-active",
-    tags: ["Interested", "Buyer"],
-    lastMsg: "What's the warranty?",
-    lastMsgTime: "1h ago",
-    assignedTo: "Agent A",
-    avi: "JL",
-    color: AVATAR_COLORS[5],
-  },
-  {
-    id: "c7",
-    name: "Chris Martin",
-    phone: "+234 803 456 7891",
-    source: "Walk-in",
-    status: "human-active",
-    tags: ["Hot", "Negotiation"],
-    lastMsg: "Can I pay on delivery?",
-    lastMsgTime: "2h ago",
-    assignedTo: "Agent C",
-    avi: "CM",
-    color: AVATAR_COLORS[6],
-  },
-  {
-    id: "c8",
-    name: "Patricia Gomez",
-    phone: "+234 807 654 3210",
-    source: "Instagram",
-    status: "ai-active",
-    tags: ["Warm", "Interested"],
-    lastMsg: "Do you have other colors?",
-    lastMsgTime: "3h ago",
-    assignedTo: "Agent B",
-    avi: "PG",
-    color: AVATAR_COLORS[7],
-  },
-  {
-    id: "c9",
-    name: "Daniel Carter",
-    phone: "+234 803 321 7654",
-    source: "Website",
-    status: "needs-attention",
-    tags: ["Cold", "Follow Up"],
-    lastMsg: "I need more information",
-    lastMsgTime: "4h ago",
-    assignedTo: "Agent A",
-    avi: "DC",
-    color: AVATAR_COLORS[0],
-  },
-  {
-    id: "c10",
-    name: "Linda Johnson",
-    phone: "+234 901 222 3344",
-    source: "Facebook Ad",
-    status: "ai-active",
-    tags: ["Buyer", "Repeat"],
-    lastMsg: "Thanks, proceed",
-    lastMsgTime: "5h ago",
-    assignedTo: "Agent C",
-    avi: "LJ",
-    color: AVATAR_COLORS[8],
-  },
-];
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
 
@@ -661,15 +512,15 @@ function ContactModal({
   const set = <K extends keyof DraftContact>(key: K, val: DraftContact[K]) =>
     setDraft((d) => ({ ...d, [key]: val }));
   const inputClass =
-    "h-10 border-white/10 bg-[#0b1324] text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324]";
+    "h-10 border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500";
   const selectTriggerClass =
-    "h-10 cursor-pointer border-white/10 bg-[#0b1324] text-slate-100 shadow-none focus:border-[#fe901d] focus:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324]";
+    "h-10 cursor-pointer border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none focus:border-[#fe901d] focus:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100";
   const selectContentClass =
-    "border-white/10 bg-[#0b1324] text-slate-100 shadow-xl";
+    "border-[#e8e2d8] bg-white text-foreground shadow-xl dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] overflow-hidden border-white/10 bg-[#0d1524] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[640px] sm:rounded-xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] overflow-hidden border-[#e8e2d8] bg-white text-foreground shadow-2xl shadow-black/10 sm:max-w-[640px] sm:rounded-xl dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100 dark:shadow-black/50">
         <DialogHeader>
           <DialogTitle className="text-xl">
             {isEditing ? "Edit Contact" : "Add Contact"}
@@ -823,7 +674,7 @@ function ContactModal({
               Notes
             </Label>
             <Textarea
-              className="h-20 resize-none border-white/10 bg-[#0b1324] text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324]"
+              className="h-20 resize-none border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
               placeholder="Optional notes…"
               value={draft.notes}
               onChange={(e) => set("notes", e.target.value)}
@@ -891,7 +742,7 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
   const navigate = useNavigate();
   const contactsQuery = useQuery(getContacts);
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const contacts = (contactsQuery.data as Contact[] | undefined) ?? [];
 
   // Filters
   const [search, setSearch] = useState("");
@@ -915,12 +766,6 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
   const [draftError, setDraftError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
-
-  useEffect(() => {
-    if (contactsQuery.data) {
-      setContacts(contactsQuery.data as Contact[]);
-    }
-  }, [contactsQuery.data]);
 
   // Filtered list
   const filtered = useMemo(() => {
@@ -1010,7 +855,7 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
 
     try {
       if (editingId) {
-        const updatedContact = (await updateContactOperation({
+        await updateContactOperation({
           id: editingId,
           name: draft.name.trim(),
           phone: draft.phone.trim(),
@@ -1020,15 +865,10 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
           assignedTo: draft.assignedTo,
           tags,
           notes: draft.notes,
-        })) as Contact;
-        setContacts((prev) =>
-          prev.map((contact) =>
-            contact.id === editingId ? updatedContact : contact,
-          ),
-        );
+        });
         toast({ title: "Contact updated" });
       } else {
-        const createdContact = (await createContactOperation({
+        await createContactOperation({
           name: draft.name.trim(),
           phone: draft.phone.trim(),
           email: draft.email,
@@ -1037,8 +877,7 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
           assignedTo: draft.assignedTo,
           tags,
           notes: draft.notes,
-        })) as Contact;
-        setContacts((prev) => [createdContact, ...prev]);
+        });
         toast({ title: "Contact added" });
       }
       setAddEditOpen(false);
@@ -1056,7 +895,6 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
     if (!deletingContact) return;
     try {
       await deleteContactOperation({ id: deletingContact.id });
-      setContacts((prev) => prev.filter((c) => c.id !== deletingContact.id));
       setSelectedIds((prev) => {
         const n = new Set(prev);
         n.delete(deletingContact.id);
@@ -1111,9 +949,11 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
         { v: "all", l: "Source" },
         { v: "facebook-ad", l: "Facebook Ad" },
         { v: "instagram", l: "Instagram" },
+        { v: "whatsapp", l: "WhatsApp" },
         { v: "landing-page", l: "Landing Page" },
         { v: "website", l: "Website" },
         { v: "walk-in", l: "Walk-in" },
+        { v: "other", l: "Other" },
       ],
     },
     {
@@ -1156,7 +996,8 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => toast({ title: "Import ready" })}
+              disabled
+              title="Coming soon"
             >
               <Upload className="h-4 w-4" /> Import
             </Button>
@@ -1164,7 +1005,8 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={() => toast({ title: "Export started" })}
+              disabled
+              title="Coming soon"
             >
               <Download className="h-4 w-4" /> Export
             </Button>
@@ -1218,7 +1060,8 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => toast({ title: "More filters coming soon" })}
+            disabled
+            title="Coming soon"
           >
             <SlidersHorizontal className="h-4 w-4" /> More Filters
           </Button>

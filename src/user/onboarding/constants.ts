@@ -106,8 +106,8 @@ export const whatsappModeOptions: Array<{
     label: "Use Official WhatsApp API",
     eyebrow: "Official API",
     description:
-      "Built for higher-volume messaging and future scaling. KYC and approval come next.",
-    cta: "Setup Business API",
+      "Built for higher-volume messaging and future scaling. We will capture this preference now and complete API details after onboarding.",
+    cta: "Continue with Official API",
     badge: "Advanced",
   },
 ];

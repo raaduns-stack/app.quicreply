@@ -188,12 +188,6 @@ page BillingPage {
   component: import BillingPage from "@src/billing/BillingPage"
 }
 
-route DashboardContactsRoute { path: "/dashboard/contacts", to: DashboardContactsPage }
-page DashboardContactsPage {
-  authRequired: true,
-  component: import ContactsPage from "@src/user/ContactsPage"
-}
-
 route ContactsRoute { path: "/contacts", to: ContactsPage }
 page ContactsPage {
   authRequired: true,
@@ -278,6 +272,12 @@ query getWhatsAppWorkspaceState {
   auth: true
 }
 
+query getDashboardSummary {
+  fn: import { getDashboardSummary } from "@src/dashboard/operations",
+  entities: [User, Organization, Contact, Campaign, WhatsAppMessageLog],
+  auth: true
+}
+
 query getWhatsAppMessageLogs {
   fn: import { getWhatsAppMessageLogs } from "@src/whatsapp/operations",
   entities: [User, Organization],
@@ -316,6 +316,12 @@ action updateWhatsAppWebhookSettings {
 
 query getContacts {
   fn: import { getContacts } from "@src/contacts/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+query getContact {
+  fn: import { getContact } from "@src/contacts/operations",
   entities: [User, Organization, Contact],
   auth: true
 }

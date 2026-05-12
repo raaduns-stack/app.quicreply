@@ -2,9 +2,15 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import {
+  getContact,
+  updateContact as updateContactOperation,
+  useQuery,
+} from "wasp/client/operations";
+import {
   ArrowLeft,
   Bot,
   Calendar,
+  Loader2,
   MessageSquare,
   Phone,
   Plus,
@@ -18,7 +24,6 @@ import { Button } from "../client/components/ui/button";
 import { useToast } from "../client/hooks/use-toast";
 import { cn } from "../client/utils";
 import {
-  CONTACTS_DATA,
   SOURCE_CLASSES,
   STATUS_META,
   TAG_CLASSES,
@@ -74,37 +79,67 @@ const EVENT_META: Record<
   },
 };
 
-// Default timeline used when no specific data exists
-const DEFAULT_TIMELINE: TimelineEvent[] = [
-  {
-    id: "t1",
-    kind: "message-received",
-    label: "Message Received",
-    body: "\"Hey! I'm interested in learning more. What are the main differences between your plans?\"",
-    time: "10:24 AM",
-  },
-  {
-    id: "t2",
-    kind: "ai-response",
-    label: "AI Response Sent",
-    body: "Jennifer (AI) explained the plan features and sent a pricing summary.",
-    time: "10:24 AM",
-  },
-  {
-    id: "t3",
-    kind: "note-added",
-    label: "Manual Note Added",
-    body: "Changed lead status to 'Qualification'. High revenue potential identified.",
-    time: "9:15 AM",
-  },
-  {
-    id: "t4",
+// ─── Build a dynamic timeline from contact data ───────────────────────────────
+
+function buildTimeline(contact: Contact): TimelineEvent[] {
+  const events: TimelineEvent[] = [];
+
+  // Show last message if present
+  if (contact.lastMsg && contact.lastMsg !== "No messages yet") {
+    events.push({
+      id: "last-msg",
+      kind: "message-received",
+      label: "Last Message",
+      body: `"${contact.lastMsg}"`,
+      time: contact.lastMsgTime,
+    });
+
+    // If AI is active, show an AI response event
+    if (contact.status === "ai-active") {
+      events.push({
+        id: "ai-resp",
+        kind: "ai-response",
+        label: "AI Response Sent",
+        body: "Jennifer (AI) automatically responded to this message.",
+        time: contact.lastMsgTime,
+      });
+    }
+  }
+
+  // Show status info
+  const sm = STATUS_META[contact.status];
+  if (contact.status !== "new-lead") {
+    events.push({
+      id: "status",
+      kind: "status-changed",
+      label: "Status Updated",
+      body: `Contact status set to "${sm.label}".`,
+      time: contact.lastMsgTime || "Recently",
+    });
+  }
+
+  // Show notes if present
+  if (contact.notes) {
+    events.push({
+      id: "notes",
+      kind: "note-added",
+      label: "Internal Note",
+      body: contact.notes,
+      time: "Added by team",
+    });
+  }
+
+  // Contact created is always the last event
+  events.push({
+    id: "created",
     kind: "contact-created",
     label: "Contact Created",
-    body: "Lead captured via Facebook Ad campaign.",
-    time: "April 17",
-  },
-];
+    body: `Lead captured via ${contact.source}.`,
+    time: "Origin",
+  });
+
+  return events;
+}
 
 // ─── WhatsApp Icon ─────────────────────────────────────────────────────────────
 
@@ -123,10 +158,17 @@ function WaIcon({ className }: { className?: string }) {
 
 // ─── Left sidebar: profile overview ──────────────────────────────────────────
 
-function ProfileSidebar({ contact }: { contact: Contact }) {
+function ProfileSidebar({
+  contact,
+  onSaveNotes,
+}: {
+  contact: Contact;
+  onSaveNotes: (notes: string) => void;
+}) {
   const [notes, setNotes] = useState(
     contact.notes ?? "No internal notes yet. Click to add some.",
   );
+  const [dirty, setDirty] = useState(false);
   const sm = STATUS_META[contact.status];
 
   return (
@@ -236,17 +278,32 @@ function ProfileSidebar({ contact }: { contact: Contact }) {
       {/* Divider */}
       <div className="h-px bg-border/60" />
 
-      {/* Internal notes */}
+      {/* Internal notes — saved to DB */}
       <div>
         <p className="mb-2 text-xs font-extrabold uppercase tracking-widest text-muted-foreground">
           Internal Notes
         </p>
         <textarea
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={(e) => {
+            setNotes(e.target.value);
+            setDirty(true);
+          }}
           className="w-full resize-none rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm italic leading-relaxed text-slate-700 outline-none transition-colors focus:border-amber-300 focus:bg-amber-50 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-slate-300"
           rows={5}
         />
+        {dirty && (
+          <Button
+            size="sm"
+            className="mt-2 w-full"
+            onClick={() => {
+              onSaveNotes(notes);
+              setDirty(false);
+            }}
+          >
+            Save Notes
+          </Button>
+        )}
       </div>
     </aside>
   );
@@ -255,6 +312,17 @@ function ProfileSidebar({ contact }: { contact: Contact }) {
 // ─── Timeline ─────────────────────────────────────────────────────────────────
 
 function Timeline({ events }: { events: TimelineEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/60 py-16 text-center">
+        <MessageSquare className="h-8 w-8 text-muted-foreground/30" />
+        <p className="text-sm font-medium text-muted-foreground">
+          No activity recorded yet
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-1">
       {events.map((event, i) => {
@@ -314,8 +382,25 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Find contact from mock data
-  const contact = CONTACTS_DATA.find((c) => c.id === contactId);
+  // Fetch contact from the real database
+  const contactQuery = useQuery(getContact, { id: contactId ?? "" });
+  const contact = contactQuery.data as Contact | null | undefined;
+
+  // Loading state
+  if (contactQuery.isLoading) {
+    return (
+      <UserLayout user={user}>
+        <div className="flex flex-col items-center justify-center gap-4 py-32 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-muted">
+            <Loader2 className="h-7 w-7 animate-spin text-[#fe901d]" />
+          </div>
+          <p className="text-sm font-medium text-muted-foreground">
+            Loading contact…
+          </p>
+        </div>
+      </UserLayout>
+    );
+  }
 
   // 404 state
   if (!contact) {
@@ -337,6 +422,32 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
         </div>
       </UserLayout>
     );
+  }
+
+  // Build dynamic timeline from real contact data
+  const timelineEvents = buildTimeline(contact);
+
+  async function handleSaveNotes(newNotes: string) {
+    try {
+      await updateContactOperation({
+        id: contact!.id,
+        name: contact!.name,
+        phone: contact!.phone,
+        email: contact!.email ?? "",
+        source: contact!.source,
+        status: contact!.status,
+        assignedTo: contact!.assignedTo,
+        tags: contact!.tags,
+        notes: newNotes,
+      });
+      toast({ title: "Notes saved" });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not save notes",
+        description: err?.message || "Please try again.",
+      });
+    }
   }
 
   return (
@@ -362,7 +473,7 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
         <div className="flex flex-1 overflow-hidden">
 
           {/* Left: profile sidebar */}
-          <ProfileSidebar contact={contact} />
+          <ProfileSidebar contact={contact} onSaveNotes={handleSaveNotes} />
 
           {/* Right: interaction timeline */}
           <div className="flex-1 overflow-y-auto bg-slate-50/50 p-8 dark:bg-[#0b1220]/50 md:p-10">
@@ -377,7 +488,8 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
                   <Button
                     size="sm"
                     className="gap-1.5"
-                    onClick={() => toast({ title: "Message composer opening…" })}
+                    disabled
+                    title="Coming soon"
                   >
                     <Send className="h-4 w-4" /> Send Message
                   </Button>
@@ -385,7 +497,8 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
                     size="sm"
                     variant="outline"
                     className="gap-1.5"
-                    onClick={() => toast({ title: "Call scheduler opening…" })}
+                    disabled
+                    title="Coming soon"
                   >
                     <Calendar className="h-4 w-4" /> Schedule Call
                   </Button>
@@ -402,8 +515,9 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
                 ].map((chip) => (
                   <button
                     key={chip.label}
-                    onClick={() => toast({ title: `${chip.label} coming soon` })}
-                    className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
+                    disabled
+                    title="Coming soon"
+                    className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {chip.icon} {chip.label}
                   </button>
@@ -411,7 +525,7 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
               </div>
 
               {/* Timeline */}
-              <Timeline events={DEFAULT_TIMELINE} />
+              <Timeline events={timelineEvents} />
             </div>
           </div>
 

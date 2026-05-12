@@ -25,7 +25,6 @@ import {
   useQuery,
 } from "wasp/client/operations";
 import UserLayout from "./layout/UserLayout";
-import { Card, CardContent } from "../client/components/ui/card";
 import { Button } from "../client/components/ui/button";
 import { Switch } from "../client/components/ui/switch";
 import {
@@ -40,6 +39,12 @@ import { cn } from "../client/utils";
 type WhatsAppWorkspaceState = {
   whatsappMode: "qr" | "api" | "both";
   isAiActive: boolean;
+  metrics: {
+    totalMessages: number;
+    activeSessions: number;
+    qrUsageToday: number;
+    aiReplies: number;
+  };
   qr: {
     status: "disconnected" | "pending" | "connected" | "expired" | "failed";
     connected: boolean;
@@ -313,6 +318,16 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     qrState?.deviceInfo && !qrState.deviceInfo.startsWith("quicreply-")
       ? qrState.deviceInfo
       : null;
+  const metrics = workspaceState?.metrics ?? {
+    totalMessages: 0,
+    activeSessions: 0,
+    qrUsageToday: 0,
+    aiReplies: 0,
+  };
+  const qrUsagePercent = Math.min(
+    100,
+    Math.round((metrics.qrUsageToday / 500) * 100),
+  );
 
   async function handleStartQrHandshake() {
     setIsStartingQr(true);
@@ -556,17 +571,17 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
           {[
             {
               label: "Total Messages",
-              value: "18,420",
+              value: metrics.totalMessages.toLocaleString(),
               sub: (
                 <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
-                  ↑ 12%{" "}
-                  <span className="text-slate-400 font-normal">this month</span>
+                  Real{" "}
+                  <span className="text-slate-400 font-normal">from logs</span>
                 </span>
               ),
             },
             {
               label: "Active Sessions",
-              value: workspaceState?.qr.connected ? "1" : "0",
+              value: metrics.activeSessions.toLocaleString(),
               sub: (
                 <span className="text-xs text-slate-400">
                   {workspaceState?.qr.connected
@@ -577,7 +592,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             },
             {
               label: "QR Usage Today",
-              value: "342",
+              value: metrics.qrUsageToday.toLocaleString(),
               sub: (
                 <div className="mt-1">
                   <div className="mb-1 flex justify-between">
@@ -585,23 +600,26 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       of ~500 limit
                     </span>
                     <span className="text-xs font-bold text-amber-600">
-                      68%
+                      {qrUsagePercent}%
                     </span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
-                    <div className="h-full w-[68%] rounded-full bg-amber-500" />
+                    <div
+                      className="h-full rounded-full bg-amber-500"
+                      style={{ width: `${qrUsagePercent}%` }}
+                    />
                   </div>
                 </div>
               ),
             },
             {
               label: "AI Replies",
-              value: "5,820",
+              value: metrics.aiReplies.toLocaleString(),
               sub: (
                 <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
-                  ↑ 24%{" "}
+                  Real{" "}
                   <span className="text-slate-400 font-normal">
-                    vs last week
+                    n8n replies
                   </span>
                 </span>
               ),

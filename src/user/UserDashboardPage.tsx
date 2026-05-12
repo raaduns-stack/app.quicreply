@@ -17,11 +17,52 @@ import {
   UserPlus,
   Wifi,
 } from "lucide-react";
+import { getDashboardSummary, useQuery } from "wasp/client/operations";
 import { Button } from "../client/components/ui/button";
 import { cn } from "../client/utils";
 import UserLayout from "./layout/UserLayout";
 
 type IconType = ComponentType<{ className?: string; strokeWidth?: number }>;
+type DashboardSummary = {
+  messagesReceived: number;
+  leadsCaptured: number;
+  aiResponses: number;
+  revenueInPipeline: number;
+  unreadMessages: number;
+  qrConnected: boolean;
+  apiStatus: "none" | "pending" | "approved";
+  isAiActive: boolean;
+  recentActivities: Array<{
+    id: string;
+    label: string;
+    time: string;
+    badge: "LEAD" | "AI" | "MESSAGE" | "CAMPAIGN" | "QR";
+  }>;
+  recentConversations: Array<{
+    id: string;
+    name: string;
+    initials: string;
+    snippet: string;
+    time: string;
+    unread?: string;
+  }>;
+  lastCampaign: {
+    id: string;
+    name: string;
+    status: string;
+    sent: number;
+    delivered: number;
+    failed: number;
+    createdAt: string;
+  } | null;
+};
+type DashboardStat = {
+  label: string;
+  value: string;
+  delta: string;
+  icon: IconType;
+  tone: "green" | "indigo" | "blue" | "amber";
+};
 
 const muted = "text-slate-500 dark:text-slate-400";
 const strong = "text-[#182235] dark:text-white";
@@ -31,126 +72,6 @@ const subtleButton =
   "border-[#e8e2d8] bg-white text-slate-700 hover:bg-[#fff8ee] dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5";
 const eyebrow =
   "text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-400";
-
-const statsData = [
-  {
-    label: "Messages Received",
-    value: "256",
-    delta: "+18%",
-    icon: MessageSquare,
-    tone: "green",
-  },
-  {
-    label: "Leads Captured",
-    value: "128",
-    delta: "+22%",
-    icon: UserPlus,
-    tone: "indigo",
-  },
-  {
-    label: "AI Responses",
-    value: "342",
-    delta: "+24%",
-    icon: Bot,
-    tone: "blue",
-  },
-  {
-    label: "Revenue in Pipeline",
-    value: "$8,420",
-    delta: "+15%",
-    icon: DollarSign,
-    tone: "amber",
-  },
-] satisfies Array<{
-  label: string;
-  value: string;
-  delta: string;
-  icon: IconType;
-  tone: "green" | "indigo" | "blue" | "amber";
-}>;
-
-const activityItemsData = [
-  {
-    label: "New lead captured from Facebook Ad",
-    time: "12:32 PM",
-    badge: "LEAD",
-    icon: UserPlus,
-    tone: "green",
-  },
-  {
-    label: "AI (Jennifer) responded to customer",
-    time: "12:35 PM",
-    badge: "AI",
-    icon: Bot,
-    tone: "purple",
-  },
-  {
-    label: 'Campaign "Weekend Promo" sent to 500 contacts',
-    time: "1:02 PM",
-    badge: "CAMPAIGN",
-    icon: Send,
-    tone: "blue",
-  },
-  {
-    label: "WhatsApp QR code scanned and connected",
-    time: "1:15 PM",
-    badge: "QR",
-    icon: QrCode,
-    tone: "slate",
-  },
-  {
-    label: "New deal moved to pipeline: $350",
-    time: "2:10 PM",
-    badge: "PIPELINE",
-    icon: DollarSign,
-    tone: "amber",
-  },
-] satisfies Array<{
-  label: string;
-  time: string;
-  badge: string;
-  icon: IconType;
-  tone: "green" | "purple" | "blue" | "slate" | "amber";
-}>;
-
-const conversationsData = [
-  {
-    name: "Sarah Johnson",
-    initials: "SJ",
-    snippet: "Is the product still available?",
-    time: "2m ago",
-    tone: "bg-gradient-to-br from-indigo-500 to-purple-500",
-    unread: "2",
-  },
-  {
-    name: "Mike Brown",
-    initials: "MB",
-    snippet: "Can you share the price list?",
-    time: "15m ago",
-    tone: "bg-gradient-to-br from-blue-500 to-indigo-500",
-  },
-  {
-    name: "Emily Davis",
-    initials: "ED",
-    snippet: "Do you deliver to my area?",
-    time: "32m ago",
-    tone: "bg-gradient-to-br from-amber-500 to-red-500",
-  },
-  {
-    name: "David Wilson",
-    initials: "DW",
-    snippet: "I want to place a bulk order",
-    time: "1h ago",
-    tone: "bg-gradient-to-br from-emerald-500 to-blue-500",
-  },
-  {
-    name: "Jessica Lee",
-    initials: "JL",
-    snippet: "What's the warranty on this?",
-    time: "2h ago",
-    tone: "bg-gradient-to-br from-purple-500 to-pink-500",
-  },
-];
 
 function iconTone(tone: string) {
   if (tone === "green") {
@@ -208,7 +129,7 @@ function DashboardPill({
   );
 }
 
-function StatCard({ stat }: { stat: (typeof statsData)[number] }) {
+function StatCard({ stat }: { stat: DashboardStat }) {
   const Icon = stat.icon;
 
   const bgColors = {
@@ -227,7 +148,12 @@ function StatCard({ stat }: { stat: (typeof statsData)[number] }) {
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[#e8e2d8] bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-[3px] hover:shadow-lg dark:border-white/10 dark:bg-[#0d1524]">
-      <div className={cn("absolute top-0 left-0 h-[3px] w-full opacity-0 transition-opacity group-hover:opacity-100", accentColors[stat.tone])} />
+      <div
+        className={cn(
+          "absolute top-0 left-0 h-[3px] w-full opacity-0 transition-opacity group-hover:opacity-100",
+          accentColors[stat.tone],
+        )}
+      />
       <div className="flex items-center gap-3">
         <span
           className={cn(
@@ -239,13 +165,11 @@ function StatCard({ stat }: { stat: (typeof statsData)[number] }) {
         </span>
         <div className="min-w-0">
           <p className={eyebrow}>{stat.label}</p>
-          <p className={cn("mt-1 text-3xl font-bold", strong)}>
-            {stat.value}
-          </p>
+          <p className={cn("mt-1 text-3xl font-bold", strong)}>{stat.value}</p>
           <p className="mt-1 text-xs font-semibold text-emerald-500 dark:text-emerald-400">
-            ↑ {stat.delta}
+            {stat.delta}
           </p>
-          <p className={cn("text-xs", muted)}>vs yesterday</p>
+          <p className={cn("text-xs", muted)}>from database</p>
         </div>
       </div>
     </div>
@@ -254,7 +178,79 @@ function StatCard({ stat }: { stat: (typeof statsData)[number] }) {
 
 export default function UserDashboardPage({ user }: { user: AuthUser }) {
   const displayName = user.username || user.email?.split("@")[0] || "there";
-  const [activeTab, setActiveTab] = useState<"all" | "messages" | "campaigns" | "leads">("all");
+  const [activeTab, setActiveTab] = useState<
+    "all" | "messages" | "campaigns" | "leads"
+  >("all");
+  const { data, isLoading } = useQuery(getDashboardSummary);
+  const summary = data as DashboardSummary | undefined;
+  const statsData: DashboardStat[] = [
+    {
+      label: "Messages Received",
+      value: (summary?.messagesReceived ?? 0).toLocaleString(),
+      delta: "Real",
+      icon: MessageSquare,
+      tone: "green",
+    },
+    {
+      label: "Leads Captured",
+      value: (summary?.leadsCaptured ?? 0).toLocaleString(),
+      delta: "Real",
+      icon: UserPlus,
+      tone: "indigo",
+    },
+    {
+      label: "AI Responses",
+      value: (summary?.aiResponses ?? 0).toLocaleString(),
+      delta: "Real",
+      icon: Bot,
+      tone: "blue",
+    },
+    {
+      label: "Revenue in Pipeline",
+      value: `$${(summary?.revenueInPipeline ?? 0).toLocaleString()}`,
+      delta: "Needs pipeline",
+      icon: DollarSign,
+      tone: "amber",
+    },
+  ];
+  const activityItemsData =
+    summary?.recentActivities.map((item) => ({
+      ...item,
+      icon:
+        item.badge === "LEAD"
+          ? UserPlus
+          : item.badge === "AI"
+            ? Bot
+            : item.badge === "CAMPAIGN"
+              ? Send
+              : item.badge === "QR"
+                ? QrCode
+                : MessageSquare,
+      tone:
+        item.badge === "LEAD"
+          ? "green"
+          : item.badge === "AI"
+            ? "purple"
+            : item.badge === "CAMPAIGN"
+              ? "blue"
+              : item.badge === "QR"
+                ? "slate"
+                : "green",
+    })) ?? [];
+  const conversationsData =
+    summary?.recentConversations.map((conversation, index) => ({
+      ...conversation,
+      tone: [
+        "bg-gradient-to-br from-indigo-500 to-purple-500",
+        "bg-gradient-to-br from-blue-500 to-indigo-500",
+        "bg-gradient-to-br from-amber-500 to-red-500",
+        "bg-gradient-to-br from-emerald-500 to-blue-500",
+        "bg-gradient-to-br from-purple-500 to-pink-500",
+      ][index % 5],
+    })) ?? [];
+  const lastCampaign = summary?.lastCampaign ?? null;
+  const isQrConnected = summary?.qrConnected ?? false;
+  const apiStatus = summary?.apiStatus ?? "none";
 
   return (
     <UserLayout user={user}>
@@ -270,8 +266,15 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
 
           <div className="flex flex-wrap items-center gap-2">
             <DashboardPill tone="green">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              QR Mode
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  isQrConnected
+                    ? "animate-pulse bg-emerald-500"
+                    : "bg-slate-400",
+                )}
+              />
+              {isQrConnected ? "QR Connected" : "QR Not Connected"}
             </DashboardPill>
             <DashboardPill tone="warning">
               <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.8} />
@@ -294,18 +297,31 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
 
         {/* Connectivity Status Bar */}
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#e8e2d8] bg-white px-4 py-4 shadow-sm dark:border-white/10 dark:bg-[#0d1524] md:flex-nowrap md:gap-0 md:px-6">
-          {/* Item 1: QR Connected */}
+          {/* Item 1: QR Status */}
           <div className="flex items-center gap-3 flex-1 min-w-[180px]">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
-              <CheckCircle2 className="h-5 w-5" strokeWidth={1.8} />
+              {isQrConnected ? (
+                <CheckCircle2 className="h-5 w-5" strokeWidth={1.8} />
+              ) : (
+                <QrCode className="h-5 w-5" strokeWidth={1.8} />
+              )}
             </span>
             <div className="min-w-0">
-              <p className={cn("text-sm font-bold", strong)}>QR Connected</p>
-              <p className={cn("text-xs", muted)}>WhatsApp is connected</p>
+              <p className={cn("text-sm font-bold", strong)}>
+                {isQrConnected ? "QR Connected" : "QR Not Connected"}
+              </p>
+              <p className={cn("text-xs", muted)}>
+                {isQrConnected
+                  ? "WhatsApp is connected"
+                  : "Connect WhatsApp to start"}
+              </p>
             </div>
             <Button
               variant="outline"
-              className={cn("h-8 cursor-pointer rounded-lg px-3 text-xs font-semibold ml-auto", subtleButton)}
+              className={cn(
+                "h-8 cursor-pointer rounded-lg px-3 text-xs font-semibold ml-auto",
+                subtleButton,
+              )}
             >
               Reconnect
             </Button>
@@ -313,16 +329,26 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
 
           <div className="hidden md:block w-px h-8 bg-[#e8e2d8] dark:bg-white/10" />
 
-          {/* Item 2: API Not Setup */}
+          {/* Item 2: API Status */}
           <div className="flex items-center gap-3 flex-1 min-w-[180px] md:px-6">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-300">
               <Wifi className="h-5 w-5" strokeWidth={1.8} />
             </span>
             <div className="min-w-0">
-              <p className={cn("text-sm font-bold", strong)}>API: Not Setup</p>
+              <p className={cn("text-sm font-bold", strong)}>
+                API:{" "}
+                {apiStatus === "approved"
+                  ? "Active"
+                  : apiStatus === "pending"
+                    ? "Pending"
+                    : "Not Setup"}
+              </p>
               <p className={cn("text-xs", muted)}>
                 Unlock higher limits ·{" "}
-                <Link to="/whatsapp/setup" className="cursor-pointer font-semibold text-[#fe901d] hover:underline">
+                <Link
+                  to="/whatsapp/setup"
+                  className="cursor-pointer font-semibold text-[#fe901d] hover:underline"
+                >
                   Set up now →
                 </Link>
               </p>
@@ -337,8 +363,16 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
               <AlertTriangle className="h-5 w-5" strokeWidth={1.8} />
             </span>
             <div className="min-w-0">
-              <p className={cn("text-sm font-bold", strong)}>Limited mode (QR only)</p>
-              <p className={cn("text-xs", muted)}>You're reaching QR limits</p>
+              <p className={cn("text-sm font-bold", strong)}>
+                {apiStatus === "approved"
+                  ? "API mode available"
+                  : "Limited mode (QR only)"}
+              </p>
+              <p className={cn("text-xs", muted)}>
+                {apiStatus === "approved"
+                  ? "Official API is approved"
+                  : "Upgrade when you need more scale"}
+              </p>
             </div>
           </div>
 
@@ -348,7 +382,10 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           <div className="w-full md:w-auto md:pl-6">
             <Button
               asChild
-              className={cn("h-9 cursor-pointer rounded-lg px-4 text-sm font-bold gap-1.5", orangeButton)}
+              className={cn(
+                "h-9 cursor-pointer rounded-lg px-4 text-sm font-bold gap-1.5",
+                orangeButton,
+              )}
             >
               <Link to="/whatsapp/setup">
                 <Rocket className="h-4 w-4" strokeWidth={1.8} />
@@ -370,35 +407,45 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300 shadow-sm">
             <MessageSquare className="h-6 w-6" strokeWidth={1.8} />
             <span className="absolute -right-2 -top-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-              8
+              {summary?.unreadMessages ?? 0}
             </span>
           </span>
           <div>
             <h2 className={cn("text-sm font-bold", strong)}>
-              You have 8 unread messages
+              You have {(summary?.unreadMessages ?? 0).toLocaleString()} unread
+              messages
             </h2>
             <p className={cn("text-xs", muted)}>
-              Respond quickly to convert leads...
+              Respond quickly to convert leads.
             </p>
           </div>
           <div className="ml-auto flex flex-wrap gap-2">
             <Button
               asChild
-              className={cn("h-9 cursor-pointer rounded-lg px-3 text-xs font-bold", orangeButton)}
+              className={cn(
+                "h-9 cursor-pointer rounded-lg px-3 text-xs font-bold",
+                orangeButton,
+              )}
             >
               <Link to="/inbox">Open Inbox</Link>
             </Button>
             <Button
               asChild
               variant="outline"
-              className={cn("h-9 cursor-pointer rounded-lg px-3 text-xs font-bold", subtleButton)}
+              className={cn(
+                "h-9 cursor-pointer rounded-lg px-3 text-xs font-bold",
+                subtleButton,
+              )}
             >
               <Link to="/contacts">View Leads</Link>
             </Button>
             <Button
               asChild
               variant="outline"
-              className={cn("h-9 cursor-pointer rounded-lg px-3 text-xs font-bold", subtleButton)}
+              className={cn(
+                "h-9 cursor-pointer rounded-lg px-3 text-xs font-bold",
+                subtleButton,
+              )}
             >
               <Link to="/settings">Test AI</Link>
             </Button>
@@ -411,72 +458,118 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           <div className="rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#f3f4f6] dark:border-white/10">
               <h2 className={cn("text-sm font-bold", strong)}>Activity Feed</h2>
-              <Link to="/inbox" className="cursor-pointer text-xs font-semibold text-[#fe901d] hover:underline">
+              <Link
+                to="/inbox"
+                className="cursor-pointer text-xs font-semibold text-[#fe901d] hover:underline"
+              >
                 View all
               </Link>
             </div>
 
             {/* Tabs */}
             <div className="flex gap-2 px-5 pt-4 text-sm font-semibold border-b border-[#f3f4f6] dark:border-white/10">
-              {(["all", "messages", "campaigns", "leads"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition capitalize",
-                    activeTab === tab
-                      ? "bg-[#f3f4f6] text-[#182235] dark:bg-white/10 dark:text-white"
-                      : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200",
-                  )}
-                >
-                  {tab === "all" ? "All" : tab === "messages" ? "Messages" : tab === "campaigns" ? "Campaigns" : "Leads"}
-                </button>
-              ))}
+              {(["all", "messages", "campaigns", "leads"] as const).map(
+                (tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      "cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition capitalize",
+                      activeTab === tab
+                        ? "bg-[#f3f4f6] text-[#182235] dark:bg-white/10 dark:text-white"
+                        : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200",
+                    )}
+                  >
+                    {tab === "all"
+                      ? "All"
+                      : tab === "messages"
+                        ? "Messages"
+                        : tab === "campaigns"
+                          ? "Campaigns"
+                          : "Leads"}
+                  </button>
+                ),
+              )}
             </div>
 
             {/* Feed Items */}
             <div>
-              {activityItemsData.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.label}
-                    className="flex items-center gap-3 px-5 py-3 border-b border-[#f9fafb] last:border-0 hover:bg-[#fafafa] dark:border-white/5 dark:hover:bg-white/5"
-                  >
-                    <span className={cn("flex h-8 w-8 items-center justify-center rounded-full shrink-0", iconTone(item.tone))}>
-                      <Icon className="h-4 w-4" strokeWidth={1.8} />
-                    </span>
-                    <p className={cn("text-sm font-semibold flex-1", strong)}>
-                      {item.label}
-                    </p>
-                    <span className={cn("text-xs shrink-0 hidden sm:inline", muted)}>
-                      {item.time}
-                    </span>
-                    <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black uppercase shrink-0", badgeTone(item.tone))}>
-                      {item.badge}
-                    </span>
-                  </div>
-                );
-              })}
+              {activityItemsData.length ? (
+                activityItemsData.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div
+                      key={item.label}
+                      className="flex items-center gap-3 px-5 py-3 border-b border-[#f9fafb] last:border-0 hover:bg-[#fafafa] dark:border-white/5 dark:hover:bg-white/5"
+                    >
+                      <span
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-full shrink-0",
+                          iconTone(item.tone),
+                        )}
+                      >
+                        <Icon className="h-4 w-4" strokeWidth={1.8} />
+                      </span>
+                      <p className={cn("text-sm font-semibold flex-1", strong)}>
+                        {item.label}
+                      </p>
+                      <span
+                        className={cn(
+                          "text-xs shrink-0 hidden sm:inline",
+                          muted,
+                        )}
+                      >
+                        {item.time}
+                      </span>
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black uppercase shrink-0",
+                          badgeTone(item.tone),
+                        )}
+                      >
+                        {item.badge}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className={cn("px-5 py-8 text-sm", muted)}>
+                  {isLoading ? "Loading activity..." : "No real activity yet."}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Smart Recommendations */}
           <div className="rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#f3f4f6] dark:border-white/10">
-              <h2 className={cn("text-sm font-bold", strong)}>Smart Recommendations</h2>
+              <h2 className={cn("text-sm font-bold", strong)}>
+                Smart Recommendations
+              </h2>
             </div>
             <div className="flex gap-3 p-5">
               {/* Indigo Card */}
               <div className="rounded-2xl border border-[#e0d9fd] bg-[#f5f3ff] p-5 flex-1 dark:border-[#4f46e5]/20 dark:bg-[#4f46e5]/10">
-                <span className={cn("inline-flex h-10 w-10 items-center justify-center rounded-xl", "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300")}>
+                <span
+                  className={cn(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-xl",
+                    "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300",
+                  )}
+                >
                   <TrendingUp className="h-5 w-5" strokeWidth={1.8} />
                 </span>
-                <h3 className={cn("mt-4 text-sm font-bold", strong)}>Upgrade to API</h3>
-                <p className={cn("mt-1 text-sm leading-5", muted)}>You're reaching QR limits. API gives you 10x more capacity.</p>
+                <h3 className={cn("mt-4 text-sm font-bold", strong)}>
+                  Upgrade to API
+                </h3>
+                <p className={cn("mt-1 text-sm leading-5", muted)}>
+                  You're reaching QR limits. API gives you 10x more capacity.
+                </p>
                 <Button
                   asChild
-                  className={cn("mt-4 h-8 w-full cursor-pointer rounded-lg text-xs font-semibold", "bg-indigo-600 text-white hover:bg-indigo-700")}
+                  className={cn(
+                    "mt-4 h-8 w-full cursor-pointer rounded-lg text-xs font-semibold",
+                    "bg-indigo-600 text-white hover:bg-indigo-700",
+                  )}
                 >
                   <Link to="/whatsapp/setup">Upgrade Now</Link>
                 </Button>
@@ -484,14 +577,26 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
 
               {/* Purple Card */}
               <div className="rounded-2xl border border-[#f3e0ff] bg-[#fdf4ff] p-5 flex-1 dark:border-[#a855f7]/20 dark:bg-[#a855f7]/10">
-                <span className={cn("inline-flex h-10 w-10 items-center justify-center rounded-xl", "bg-purple-500/10 text-purple-600 dark:bg-purple-400/10 dark:text-purple-300")}>
+                <span
+                  className={cn(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-xl",
+                    "bg-purple-500/10 text-purple-600 dark:bg-purple-400/10 dark:text-purple-300",
+                  )}
+                >
                   <Bot className="h-5 w-5" strokeWidth={1.8} />
                 </span>
-                <h3 className={cn("mt-4 text-sm font-bold", strong)}>Activate AI (Jennifer)</h3>
-                <p className={cn("mt-1 text-sm leading-5", muted)}>Let Jennifer handle common questions 24/7 automatically.</p>
+                <h3 className={cn("mt-4 text-sm font-bold", strong)}>
+                  Activate AI (Jennifer)
+                </h3>
+                <p className={cn("mt-1 text-sm leading-5", muted)}>
+                  Let Jennifer handle common questions 24/7 automatically.
+                </p>
                 <Button
                   asChild
-                  className={cn("mt-4 h-8 w-full cursor-pointer rounded-lg text-xs font-semibold", "bg-purple-600 text-white hover:bg-purple-700")}
+                  className={cn(
+                    "mt-4 h-8 w-full cursor-pointer rounded-lg text-xs font-semibold",
+                    "bg-purple-600 text-white hover:bg-purple-700",
+                  )}
                 >
                   <Link to="/settings">Set Up AI</Link>
                 </Button>
@@ -505,82 +610,140 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           {/* Recent Conversations */}
           <div className="rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#f3f4f6] dark:border-white/10">
-              <h2 className={cn("text-sm font-bold", strong)}>Recent Conversations</h2>
-              <Link to="/inbox" className="cursor-pointer text-xs font-semibold text-[#fe901d] hover:underline">
+              <h2 className={cn("text-sm font-bold", strong)}>
+                Recent Conversations
+              </h2>
+              <Link
+                to="/inbox"
+                className="cursor-pointer text-xs font-semibold text-[#fe901d] hover:underline"
+              >
                 View all
               </Link>
             </div>
             <div>
-              {conversationsData.map((conversation) => (
-                <div
-                  key={conversation.name}
-                  className="flex items-center gap-3 px-5 py-3 border-b border-[#f9fafb] last:border-0 cursor-pointer hover:bg-[#fafafa] dark:border-white/5 dark:hover:bg-white/5 transition-colors"
-                >
-                  <span
-                    className={cn(
-                      "h-9 w-9 rounded-full flex-shrink-0 flex items-center justify-center text-white text-xs font-bold",
-                      conversation.tone,
-                    )}
+              {conversationsData.length ? (
+                conversationsData.map((conversation) => (
+                  <div
+                    key={conversation.name}
+                    className="flex items-center gap-3 px-5 py-3 border-b border-[#f9fafb] last:border-0 cursor-pointer hover:bg-[#fafafa] dark:border-white/5 dark:hover:bg-white/5 transition-colors"
                   >
-                    {conversation.initials}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className={cn("truncate text-sm font-bold", strong)}>
-                        {conversation.name}
-                      </p>
-                      {conversation.unread && (
-                        <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white shrink-0">
-                          {conversation.unread}
-                        </span>
+                    <span
+                      className={cn(
+                        "h-9 w-9 rounded-full flex-shrink-0 flex items-center justify-center text-white text-xs font-bold",
+                        conversation.tone,
                       )}
+                    >
+                      {conversation.initials}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className={cn("truncate text-sm font-bold", strong)}>
+                          {conversation.name}
+                        </p>
+                        {conversation.unread && (
+                          <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white shrink-0">
+                            {conversation.unread}
+                          </span>
+                        )}
+                      </div>
+                      <p className={cn("truncate text-xs", muted)}>
+                        {conversation.snippet}
+                      </p>
                     </div>
-                    <p className={cn("truncate text-xs", muted)}>
-                      {conversation.snippet}
-                    </p>
+                    <span
+                      className={cn("text-xs shrink-0 hidden sm:inline", muted)}
+                    >
+                      {conversation.time}
+                    </span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300 shrink-0">
+                      <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
+                    </span>
                   </div>
-                  <span className={cn("text-xs shrink-0 hidden sm:inline", muted)}>
-                    {conversation.time}
-                  </span>
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300 shrink-0">
-                    <MessageSquare className="h-4 w-4" strokeWidth={1.8} />
-                  </span>
+                ))
+              ) : (
+                <div className={cn("px-5 py-8 text-sm", muted)}>
+                  {isLoading
+                    ? "Loading conversations..."
+                    : "No real conversations yet."}
                 </div>
-              ))}
+              )}
             </div>
           </div>
 
           {/* Last Campaign Performance */}
           <div className="rounded-2xl border border-[#e8e2d8] bg-white shadow-sm dark:border-white/10 dark:bg-[#0d1524] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#f3f4f6] dark:border-white/10">
-              <h2 className={cn("text-sm font-bold", strong)}>Last Campaign Performance</h2>
-              <Link to="/campaigns" className="cursor-pointer text-xs font-semibold text-[#fe901d] hover:underline">
+              <h2 className={cn("text-sm font-bold", strong)}>
+                Last Campaign Performance
+              </h2>
+              <Link
+                to="/campaigns"
+                className="cursor-pointer text-xs font-semibold text-[#fe901d] hover:underline"
+              >
                 View all
               </Link>
             </div>
             <div className="p-5">
               <div className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4 dark:bg-white/5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className={cn("text-sm font-bold", strong)}>Weekend Promo</p>
-                  <p className={cn("text-xs", muted)}>Sent on May 18, 2024 at 10:30 AM</p>
+                  <p className={cn("text-sm font-bold", strong)}>
+                    {lastCampaign?.name ?? "No campaign yet"}
+                  </p>
+                  <p className={cn("text-xs", muted)}>
+                    {lastCampaign
+                      ? `Created ${new Date(
+                          lastCampaign.createdAt,
+                        ).toLocaleDateString()}`
+                      : "Create a campaign to see performance here."}
+                  </p>
                 </div>
                 <span className="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300">
-                  Completed
+                  {lastCampaign?.status ?? "Empty"}
                 </span>
               </div>
 
               <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-4 border-b border-[#f9fafb] pb-4 dark:border-white/5">
                 {[
-                  { value: "500", label: "Sent", percent: "" },
-                  { value: "480", label: "Delivered", percent: "96%" },
-                  { value: "120", label: "Clicked", percent: "24%" },
-                  { value: "45", label: "Replies", percent: "9%" },
+                  {
+                    value: lastCampaign?.sent ?? 0,
+                    label: "Sent",
+                    percent: "",
+                  },
+                  {
+                    value: lastCampaign?.delivered ?? 0,
+                    label: "Delivered",
+                    percent:
+                      lastCampaign && lastCampaign.sent > 0
+                        ? `${Math.round(
+                            (lastCampaign.delivered / lastCampaign.sent) * 100,
+                          )}%`
+                        : "",
+                  },
+                  {
+                    value: lastCampaign?.failed ?? 0,
+                    label: "Failed",
+                    percent: "",
+                  },
+                  {
+                    value:
+                      lastCampaign && lastCampaign.sent > 0
+                        ? lastCampaign.sent -
+                          lastCampaign.delivered -
+                          lastCampaign.failed
+                        : 0,
+                    label: "Pending",
+                    percent: "",
+                  },
                 ].map((stat) => (
                   <div key={stat.label} className="text-center">
-                    <p className={cn("text-xl font-bold", strong)}>{stat.value}</p>
+                    <p className={cn("text-xl font-bold", strong)}>
+                      {stat.value.toLocaleString()}
+                    </p>
                     <p className={cn("text-[11px]", muted)}>{stat.label}</p>
                     {stat.percent && (
-                      <p className={cn("text-[10px] font-bold", muted)}>{stat.percent}</p>
+                      <p className={cn("text-[10px] font-bold", muted)}>
+                        {stat.percent}
+                      </p>
                     )}
                   </div>
                 ))}
@@ -588,7 +751,10 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
 
               <Link
                 to="/campaigns"
-                className={cn("mt-4 flex cursor-pointer items-center justify-between transition", muted)}
+                className={cn(
+                  "mt-4 flex cursor-pointer items-center justify-between transition",
+                  muted,
+                )}
               >
                 <span className="flex items-center gap-2 text-sm font-bold hover:text-[#fe901d]">
                   <BarChart3 className="h-4 w-4" strokeWidth={1.8} />
