@@ -248,6 +248,24 @@ query getPaginatedUsers {
   auth: true
 }
 
+query getWorkspaceShell {
+  fn: import { getWorkspaceShell } from "@src/user/operations",
+  entities: [User, Organization],
+  auth: true
+}
+
+query getWorkspaceSettings {
+  fn: import { getWorkspaceSettings } from "@src/user/settingsOperations",
+  entities: [User, Organization],
+  auth: true
+}
+
+action updateWorkspaceSettings {
+  fn: import { updateWorkspaceSettings } from "@src/user/settingsOperations",
+  entities: [User, Organization],
+  auth: true
+}
+
 action updateIsUserAdminById {
   fn: import { updateIsUserAdminById } from "@src/user/operations",
   entities: [User],

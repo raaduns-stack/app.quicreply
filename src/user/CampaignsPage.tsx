@@ -3,17 +3,23 @@ import { useEffect, useMemo, useState } from "react";
 import {
   createCampaign as createCampaignOperation,
   getCampaigns,
+  getWhatsAppWorkspaceState,
   useQuery,
 } from "wasp/client/operations";
 import UserLayout from "./layout/UserLayout";
 import {
+  AlertTriangle,
+  ArrowLeft,
   Calendar,
   ChevronLeft,
   ChevronRight,
+  Eye,
   Loader2,
   Megaphone,
   MessageSquareText,
+  Rocket,
   RotateCcw,
+  Save,
   Search,
   Send,
   X,
@@ -51,128 +57,61 @@ type CampaignDraft = {
   name: string;
   subtitle: string;
   message: string;
+  type: "Promotional" | "Transactional" | "Update";
+  audience: "allContacts";
+  scheduleType: "now" | "later";
+  scheduleDate: string;
+  scheduleTime: string;
 };
 
 const EMPTY_CAMPAIGN_DRAFT: CampaignDraft = {
   name: "",
   subtitle: "",
   message: "",
+  type: "Promotional",
+  audience: "allContacts",
+  scheduleType: "now",
+  scheduleDate: "",
+  scheduleTime: "",
 };
 
-function CampaignCreateDialog({
-  open,
-  draft,
-  error,
-  isSaving,
-  onClose,
-  onSave,
-  setDraft,
-}: {
-  open: boolean;
-  draft: CampaignDraft;
-  error: string;
-  isSaving: boolean;
-  onClose: () => void;
-  onSave: () => void;
-  setDraft: React.Dispatch<React.SetStateAction<CampaignDraft>>;
-}) {
-  const inputClass =
-    "h-10 border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500";
+const formFieldClass =
+  "h-10 rounded-lg border-[#e8e2d8] bg-white text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500";
+
+const formLabelClass =
+  "text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400";
+
+function WhatsAppMessagePreview({ message }: { message: string }) {
+  const displayMessage = message.trim();
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] border-[#e8e2d8] bg-white text-foreground shadow-2xl shadow-black/10 sm:max-w-[560px] sm:rounded-xl dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100 dark:shadow-black/50">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Create Campaign</DialogTitle>
-          <DialogDescription>
-            Save a real campaign draft using your current contacts as the
-            audience.
-          </DialogDescription>
-        </DialogHeader>
-
-        {error && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
-            {error}
-          </div>
+    <div
+      className="min-h-[250px] overflow-hidden rounded-xl bg-[#e5ddd5] p-4"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at 3px 3px, rgba(5,150,105,.05) 0 3px, transparent 3px), radial-gradient(circle at 13px 13px, rgba(5,150,105,.05) 0 3px, transparent 3px)",
+        backgroundSize: "20px 20px",
+      }}
+    >
+      <div className="ml-auto max-w-[90%] whitespace-pre-wrap rounded-xl rounded-tr-sm bg-[#dcf8c6] p-3 text-[13px] leading-relaxed text-gray-800 shadow-sm">
+        {displayMessage || (
+          <span className="italic text-gray-500">
+            Type a message to see preview...
+          </span>
         )}
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-bold uppercase tracking-widest">
-              Campaign Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              className={inputClass}
-              placeholder="e.g. Weekend Offer"
-              value={draft.name}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-bold uppercase tracking-widest">
-              Subtitle
-            </Label>
-            <Input
-              className={inputClass}
-              placeholder="Short internal label"
-              value={draft.subtitle}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  subtitle: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-bold uppercase tracking-widest">
-              WhatsApp Message <span className="text-destructive">*</span>
-            </Label>
-            <Textarea
-              className="h-28 resize-none border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
-              placeholder="Write the message customers will receive..."
-              value={draft.message}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  message: event.target.value,
-                }))
-              }
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button disabled={isSaving} onClick={onSave}>
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving
-              </>
-            ) : (
-              <>
-                <Megaphone className="h-4 w-4" />
-                Save Draft
-              </>
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div className="ml-auto mt-1 flex w-fit items-center gap-1 pr-1 text-[10px] font-medium text-gray-500">
+        10:42 AM
+        <span className="text-blue-500">✓✓</span>
+      </div>
+    </div>
   );
 }
 
 const CampaignsPage = ({ user }: { user: AuthUser }) => {
   const { toast } = useToast();
   const campaignsQuery = useQuery(getCampaigns);
+  const workspaceStateQuery = useQuery(getWhatsAppWorkspaceState);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -180,7 +119,11 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     null,
   );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isPanelClosing, setIsPanelClosing] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
+  const [isLaunchOpen, setIsLaunchOpen] = useState(false);
   const [isSavingCampaign, setIsSavingCampaign] = useState(false);
   const [draft, setDraft] = useState<CampaignDraft>(EMPTY_CAMPAIGN_DRAFT);
   const [draftError, setDraftError] = useState("");
@@ -194,6 +137,16 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
       setCampaigns(campaignsQuery.data as Campaign[]);
     }
   }, [campaignsQuery.data]);
+
+  const workspaceState = workspaceStateQuery.data as
+    | {
+        whatsappMode: "qr" | "api" | "both";
+        api: { status: "none" | "pending" | "approved" };
+      }
+    | undefined;
+  const isQrOnly =
+    workspaceState?.whatsappMode !== "api" ||
+    workspaceState?.api.status !== "approved";
 
   const filteredCampaigns = campaigns.filter((campaign) => {
     const query = searchQuery.toLowerCase();
@@ -210,6 +163,21 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     selectedCampaignId !== null
       ? filteredCampaigns.find((campaign) => campaign.id === selectedCampaignId)
       : null;
+
+  const openCampaignPanel = (campaignId: string) => {
+    setSelectedCampaignId(campaignId);
+    setIsPanelClosing(false);
+    setIsPanelOpen(true);
+  };
+
+  const closeCampaignPanel = () => {
+    setIsPanelClosing(true);
+    window.setTimeout(() => {
+      setIsPanelOpen(false);
+      setIsPanelClosing(false);
+      setSelectedCampaignId(null);
+    }, 180);
+  };
 
   const totals = useMemo(
     () => ({
@@ -259,10 +227,17 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     setIsCreateOpen(true);
   }
 
-  async function saveCampaign() {
+  function insertVariable(variable: string) {
+    setDraft((current) => ({
+      ...current,
+      message: `${current.message}${current.message ? " " : ""}${variable}`,
+    }));
+  }
+
+  async function saveCampaign(options?: { stayOnPage?: boolean }) {
     if (!draft.name.trim() || !draft.message.trim()) {
       setDraftError("Campaign name and message are required.");
-      return;
+      return null;
     }
 
     setIsSavingCampaign(true);
@@ -271,21 +246,380 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     try {
       const createdCampaign = (await createCampaignOperation({
         name: draft.name.trim(),
-        subtitle: draft.subtitle.trim(),
+        subtitle: draft.subtitle.trim() || draft.type,
         message: draft.message.trim(),
-        audience: "allContacts",
+        audience: draft.audience,
       })) as Campaign;
       setCampaigns((current) => [createdCampaign, ...current]);
-      setIsCreateOpen(false);
+      if (!options?.stayOnPage) {
+        setIsCreateOpen(false);
+      }
       toast({
         title: "Campaign draft saved",
         description: "Audience was snapshotted from your current contacts.",
       });
+      return createdCampaign;
     } catch (err: any) {
       setDraftError(err?.message || "Could not save campaign.");
+      return null;
     } finally {
       setIsSavingCampaign(false);
     }
+  }
+
+  async function handleLaunchRequest() {
+    if (isQrOnly) {
+      setIsUpgradeOpen(true);
+      return;
+    }
+
+    if (!draft.name.trim() || !draft.message.trim()) {
+      setDraftError("Campaign name and message are required.");
+      return;
+    }
+
+    setIsLaunchOpen(true);
+  }
+
+  if (isCreateOpen) {
+    return (
+      <UserLayout user={user}>
+        <div className="w-full space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <Button
+                  className="h-8 w-8 cursor-pointer rounded-lg p-0"
+                  onClick={() => setIsCreateOpen(false)}
+                  variant="ghost"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <h1 className="text-2xl font-extrabold tracking-tight text-[#182235] dark:text-white">
+                  Create Campaign
+                </h1>
+              </div>
+              <p className="pl-10 text-sm font-medium text-slate-500 dark:text-slate-400">
+                Build and schedule a WhatsApp broadcast campaign
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                className="cursor-pointer gap-1.5"
+                disabled={isSavingCampaign}
+                onClick={() => saveCampaign({ stayOnPage: true })}
+                variant="outline"
+              >
+                {isSavingCampaign ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Save Draft
+              </Button>
+              <Button
+                className="cursor-pointer gap-1.5"
+                onClick={() => setIsPreviewOpen(true)}
+                variant="outline"
+              >
+                <Eye className="h-4 w-4" />
+                Preview Campaign
+              </Button>
+              <Button
+                className="cursor-pointer gap-1.5"
+                onClick={handleLaunchRequest}
+              >
+                <Rocket className="h-4 w-4" />
+                Launch Campaign
+              </Button>
+            </div>
+          </div>
+
+          {isQrOnly && (
+            <div className="flex flex-col items-start justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center dark:border-amber-400/20 dark:bg-amber-400/10">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600 dark:text-amber-400" />
+                <p className="text-sm font-bold text-amber-800 dark:text-amber-200">
+                  QR mode has limited sending. Upgrade to Official API for bulk
+                  campaigns.
+                </p>
+              </div>
+              <Button
+                asChild
+                className="cursor-pointer border-amber-700 bg-amber-600 text-white hover:bg-amber-700"
+              >
+                <a href="/whatsapp/setup">Upgrade to API</a>
+              </Button>
+            </div>
+          )}
+
+          {draftError && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
+              {draftError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="space-y-6">
+              <section className="rounded-2xl border border-[#e8e2d8] bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
+                <h2 className="mb-5 flex items-center gap-2 font-bold text-[#182235] dark:text-white">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                    1
+                  </span>
+                  Campaign Details
+                </h2>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className={formLabelClass}>Campaign Name</Label>
+                    <Input
+                      className={formFieldClass}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      placeholder="e.g., Summer Promo 2026"
+                      value={draft.name}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className={formLabelClass}>Campaign Type</Label>
+                      <select
+                        className={cn(formFieldClass, "w-full cursor-pointer")}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            type: event.target.value as CampaignDraft["type"],
+                          }))
+                        }
+                        value={draft.type}
+                      >
+                        <option>Promotional</option>
+                        <option>Transactional</option>
+                        <option>Update</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className={formLabelClass}>
+                        Audience Selection
+                      </Label>
+                      <select
+                        className={cn(formFieldClass, "w-full cursor-pointer")}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            audience: event.target
+                              .value as CampaignDraft["audience"],
+                          }))
+                        }
+                        value={draft.audience}
+                      >
+                        <option value="allContacts">All Contacts</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-[#e8e2d8] bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
+                <h2 className="mb-5 flex items-center gap-2 font-bold text-[#182235] dark:text-white">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                    2
+                  </span>
+                  Message Content
+                </h2>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className={formLabelClass}>Message</Label>
+                    <Textarea
+                      className="h-32 resize-y rounded-lg border-[#e8e2d8] bg-white text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          message: event.target.value,
+                        }))
+                      }
+                      placeholder="Type your broadcast message..."
+                      value={draft.message}
+                    />
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                        Insert variables:
+                      </span>
+                      {["{{name}}", "{{business}}", "{{offer}}"].map(
+                        (variable) => (
+                          <button
+                            className="cursor-pointer rounded-md border border-[#e8e2d8] bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/15"
+                            key={variable}
+                            onClick={() => insertVariable(variable)}
+                            type="button"
+                          >
+                            {variable}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-[#e8e2d8] bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
+                <h2 className="mb-5 flex items-center gap-2 font-bold text-[#182235] dark:text-white">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                    3
+                  </span>
+                  Delivery Settings
+                </h2>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className={formLabelClass}>Send Schedule</Label>
+                    <select
+                      className={cn(
+                        formFieldClass,
+                        "w-full cursor-pointer sm:w-1/2",
+                      )}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          scheduleType: event.target
+                            .value as CampaignDraft["scheduleType"],
+                        }))
+                      }
+                      value={draft.scheduleType}
+                    >
+                      <option value="now">Send now</option>
+                      <option value="later">Schedule later</option>
+                    </select>
+                  </div>
+                  {draft.scheduleType === "later" && (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label className={formLabelClass}>Date</Label>
+                        <Input
+                          className={formFieldClass}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              scheduleDate: event.target.value,
+                            }))
+                          }
+                          type="date"
+                          value={draft.scheduleDate}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className={formLabelClass}>Time</Label>
+                        <Input
+                          className={formFieldClass}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              scheduleTime: event.target.value,
+                            }))
+                          }
+                          type="time"
+                          value={draft.scheduleTime}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <aside>
+              <div className="sticky top-24 rounded-2xl border border-[#e8e2d8] bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
+                <h2 className="mb-4 text-center font-bold text-[#182235] dark:text-white">
+                  Message Preview
+                </h2>
+                <WhatsAppMessagePreview message={draft.message} />
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+          <DialogContent className="border-[#e8e2d8] bg-white dark:border-white/10 dark:bg-[#0d1524] sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Campaign Preview</DialogTitle>
+            </DialogHeader>
+            <WhatsAppMessagePreview message={draft.message} />
+            <DialogFooter>
+              <Button
+                className="w-full cursor-pointer"
+                onClick={() => setIsPreviewOpen(false)}
+              >
+                Close Preview
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isUpgradeOpen} onOpenChange={setIsUpgradeOpen}>
+          <DialogContent className="border-[#e8e2d8] bg-white text-center dark:border-white/10 dark:bg-[#0d1524] sm:max-w-sm">
+            <DialogHeader>
+              <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
+                <AlertTriangle className="h-7 w-7" />
+              </div>
+              <DialogTitle>Upgrade Required</DialogTitle>
+              <DialogDescription>
+                Upgrade to Official API before sending bulk campaigns.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:justify-center">
+              <Button
+                className="cursor-pointer"
+                onClick={() => setIsUpgradeOpen(false)}
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button className="cursor-pointer" asChild>
+                <a href="/whatsapp/setup">Upgrade Now</a>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isLaunchOpen} onOpenChange={setIsLaunchOpen}>
+          <DialogContent className="border-[#e8e2d8] bg-white text-center dark:border-white/10 dark:bg-[#0d1524] sm:max-w-sm">
+            <DialogHeader>
+              <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-2xl border border-[#fe901d]/20 bg-[#fe901d]/10 text-[#fe901d]">
+                <Rocket className="h-7 w-7" />
+              </div>
+              <DialogTitle>Launch Campaign?</DialogTitle>
+              <DialogDescription>
+                Sending is not enabled yet. Save this campaign as a draft now,
+                then connect the sending flow next.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:justify-center">
+              <Button
+                className="cursor-pointer"
+                onClick={() => setIsLaunchOpen(false)}
+                variant="outline"
+              >
+                Review First
+              </Button>
+              <Button
+                className="cursor-pointer"
+                disabled={isSavingCampaign}
+                onClick={async () => {
+                  const created = await saveCampaign();
+                  if (created) {
+                    setIsLaunchOpen(false);
+                  }
+                }}
+              >
+                Save Draft
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </UserLayout>
+    );
   }
 
   return (
@@ -429,8 +763,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                     <tr
                       key={campaign.id}
                       onClick={() => {
-                        setSelectedCampaignId(campaign.id);
-                        setIsPanelOpen(true);
+                        openCampaignPanel(campaign.id);
                       }}
                       className="cursor-pointer border-b border-gray-200 transition-colors hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"
                     >
@@ -521,12 +854,15 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
         </div>
 
         {isPanelOpen && selectedCampaign && (
-          <div className="fixed inset-0 z-40">
+          <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden">
             <div
-              className="absolute inset-0 bg-black/50"
-              onClick={() => setIsPanelOpen(false)}
-            />
-            <div className="absolute bottom-0 right-0 top-0 w-full max-w-md bg-white shadow-xl dark:bg-[#0d1524]">
+              className={cn(
+                "pointer-events-auto absolute bottom-0 right-0 top-0 w-full max-w-md border-l border-[#e8e2d8] bg-white shadow-xl dark:border-white/10 dark:bg-[#0d1524]",
+                isPanelClosing
+                  ? "animate-out slide-out-to-right duration-200"
+                  : "animate-in slide-in-from-right duration-200",
+              )}
+            >
               <div className="border-b border-gray-200 px-6 py-4 dark:border-white/10">
                 <div className="flex items-start justify-between">
                   <div>
@@ -538,8 +874,9 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                     </p>
                   </div>
                   <button
-                    onClick={() => setIsPanelOpen(false)}
-                    className="text-muted-foreground hover:text-foreground dark:text-gray-400 dark:hover:text-white"
+                    aria-label="Close campaign details"
+                    onClick={closeCampaignPanel}
+                    className="cursor-pointer text-muted-foreground hover:text-foreground dark:text-gray-400 dark:hover:text-white"
                   >
                     <X className="h-5 w-5" />
                   </button>
@@ -583,16 +920,6 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
           </div>
         )}
       </div>
-
-      <CampaignCreateDialog
-        open={isCreateOpen}
-        draft={draft}
-        error={draftError}
-        isSaving={isSavingCampaign}
-        onClose={() => setIsCreateOpen(false)}
-        onSave={saveCampaign}
-        setDraft={setDraft}
-      />
     </UserLayout>
   );
 };

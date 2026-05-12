@@ -8,7 +8,6 @@ import {
   Bot,
   CheckCircle2,
   ChevronRight,
-  DollarSign,
   MessageSquare,
   QrCode,
   Rocket,
@@ -24,6 +23,12 @@ import UserLayout from "./layout/UserLayout";
 
 type IconType = ComponentType<{ className?: string; strokeWidth?: number }>;
 type DashboardSummary = {
+  organizationName: string;
+  staffDisplayName: string;
+  currency: {
+    code: string;
+    symbol: string;
+  };
   messagesReceived: number;
   leadsCaptured: number;
   aiResponses: number;
@@ -60,7 +65,8 @@ type DashboardStat = {
   label: string;
   value: string;
   delta: string;
-  icon: IconType;
+  icon?: IconType;
+  currencySymbol?: string;
   tone: "green" | "indigo" | "blue" | "amber";
 };
 
@@ -161,7 +167,13 @@ function StatCard({ stat }: { stat: DashboardStat }) {
             iconTone(stat.tone),
           )}
         >
-          <Icon className="h-6 w-6" strokeWidth={1.8} />
+          {Icon ? (
+            <Icon className="h-6 w-6" strokeWidth={1.8} />
+          ) : (
+            <span className="text-2xl font-semibold leading-none">
+              {stat.currencySymbol}
+            </span>
+          )}
         </span>
         <div className="min-w-0">
           <p className={eyebrow}>{stat.label}</p>
@@ -176,12 +188,23 @@ function StatCard({ stat }: { stat: DashboardStat }) {
 }
 
 export default function UserDashboardPage({ user }: { user: AuthUser }) {
-  const displayName = user.username || user.email?.split("@")[0] || "there";
   const [activeTab, setActiveTab] = useState<
     "all" | "messages" | "campaigns" | "leads"
   >("all");
   const { data, isLoading } = useQuery(getDashboardSummary);
   const summary = data as DashboardSummary | undefined;
+  const staffDisplayName =
+    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+    (summary?.staffDisplayName &&
+    !["Team Member", "Workspace Admin"].includes(summary.staffDisplayName)
+      ? summary.staffDisplayName
+      : "");
+  const currency = summary?.currency ?? { code: "NGN", symbol: "₦" };
+  const revenueFormatter = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency.code,
+    maximumFractionDigits: 0,
+  });
   const statsData: DashboardStat[] = [
     {
       label: "Messages Received",
@@ -206,9 +229,9 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
     },
     {
       label: "Revenue in Pipeline",
-      value: `$${(summary?.revenueInPipeline ?? 0).toLocaleString()}`,
+      value: revenueFormatter.format(summary?.revenueInPipeline ?? 0),
       delta: "Pipeline value",
-      icon: DollarSign,
+      currencySymbol: currency.symbol,
       tone: "amber",
     },
   ];
@@ -259,7 +282,7 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           <div>
             <h1 className={cn("text-2xl font-bold", strong)}>Dashboard</h1>
             <p className={cn("mt-1 text-sm", muted)}>
-              Revenue Command Center · Good morning, {displayName} 👋
+              Good morning{staffDisplayName ? `, ${staffDisplayName}` : ""} 👋
             </p>
           </div>
 

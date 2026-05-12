@@ -8,11 +8,68 @@ import {
 import * as z from "zod";
 import { SubscriptionStatus } from "../payment/plans";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
+import {
+  getStaffDisplayName,
+  getWorkspaceCurrency,
+} from "../server/workspaceSettings";
+
+export type WorkspaceShell = {
+  organizationName: string;
+  staffDisplayName: string;
+  staffEmail: string | null;
+  staffRole: string;
+  currency: {
+    code: string;
+    symbol: string;
+  };
+};
 
 const updateUserAdminByIdInputSchema = z.object({
   id: z.string().nonempty(),
   isAdmin: z.boolean(),
 });
+
+export const getWorkspaceShell = async (
+  _args: unknown,
+  context: any,
+): Promise<WorkspaceShell> => {
+  if (!context.user?.id) {
+    throw new HttpError(401, "Only authenticated users can access workspace.");
+  }
+
+  const userId = context.user.id as string;
+  const [user, organization] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        isAdmin: true,
+      },
+    }),
+    prisma.organization.findUnique({
+      where: { userId },
+      select: {
+        name: true,
+        country: true,
+        settings: true,
+      },
+    }),
+  ]);
+
+  return {
+    organizationName: organization?.name || "Revenue Sales OS",
+    staffDisplayName: getStaffDisplayName(user ?? {}),
+    staffEmail: user?.email ?? null,
+    staffRole: user?.isAdmin ? "Workspace Admin" : "Team Member",
+    currency: getWorkspaceCurrency(
+      organization?.settings,
+      organization?.country,
+    ),
+  };
+};
 
 type UpdateUserAdminByIdInput = z.infer<typeof updateUserAdminByIdInputSchema>;
 

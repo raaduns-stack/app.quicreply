@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { type AuthUser } from "wasp/auth";
+import { getWorkspaceShell, useQuery } from "wasp/client/operations";
 import { Bell, Megaphone, Receipt, Search } from "lucide-react";
 import {
   DropdownMenu,
@@ -147,6 +148,14 @@ const Header = (props: {
   setIsSidebarExpanded: (arg0: boolean) => void;
   user: AuthUser;
 }) => {
+  const { data } = useQuery(getWorkspaceShell);
+  const workspaceShell = data as
+    | {
+        staffDisplayName: string;
+        staffRole: string;
+      }
+    | undefined;
+
   return (
     <header
       className={cn(
@@ -222,7 +231,11 @@ const Header = (props: {
         <div className="flex shrink-0 items-center gap-2 lg:gap-3">
           <HeaderSearch />
           <NotificationDropdown />
-          <UserDropdown user={props.user} />
+          <UserDropdown
+            displayName={workspaceShell?.staffDisplayName}
+            subtitle={workspaceShell?.staffRole}
+            user={props.user}
+          />
         </div>
       </div>
     </header>

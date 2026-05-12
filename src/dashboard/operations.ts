@@ -1,6 +1,14 @@
 import { HttpError, prisma } from "wasp/server";
+import {
+  getStaffDisplayName,
+  getWorkspaceCurrency,
+  type WorkspaceCurrency,
+} from "../server/workspaceSettings";
 
 export type DashboardSummary = {
+  organizationName: string;
+  staffDisplayName: string;
+  currency: WorkspaceCurrency;
   messagesReceived: number;
   leadsCaptured: number;
   aiResponses: number;
@@ -84,12 +92,25 @@ export const getDashboardSummary = async (
   context: any,
 ): Promise<DashboardSummary> => {
   const userId = ensureUserId(context);
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      email: true,
+      username: true,
+      firstName: true,
+      lastName: true,
+    },
+  });
+
   const organization = await prisma.organization.upsert({
     where: { userId },
     update: {},
     create: { userId },
     select: {
       id: true,
+      name: true,
+      country: true,
+      settings: true,
       qrConnected: true,
       apiStatus: true,
       isAiActive: true,
@@ -183,6 +204,9 @@ export const getDashboardSummary = async (
   const lastCampaign = organization.campaigns[0] ?? null;
 
   return {
+    organizationName: organization.name || "Revenue Sales OS",
+    staffDisplayName: getStaffDisplayName(user ?? {}),
+    currency: getWorkspaceCurrency(organization.settings, organization.country),
     messagesReceived,
     leadsCaptured,
     aiResponses,
