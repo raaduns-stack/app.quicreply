@@ -198,8 +198,8 @@ function StatBar({ contacts }: { contacts: Contact[] }) {
     {
       label: "Total Contacts",
       value: stats.total,
-      sub: "↑ 12 this week",
-      subClass: "text-emerald-600 dark:text-emerald-400",
+      sub: stats.total === 0 ? "No contacts yet" : "Contacts in workspace",
+      subClass: "text-muted-foreground",
       icon: <Users className="h-4 w-4" />,
       valueClass: "",
     },

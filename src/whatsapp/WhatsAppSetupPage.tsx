@@ -534,7 +534,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                   eyebrow="Step 2 of 6"
                   icon={<FileText className="h-4 w-4" />}
                   title="Verification Documents"
-                  description="Capture the documents needed for Meta review. Real upload storage can be connected later."
+                  description="Add the business verification documents needed for Meta review."
                 />
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
                   <button
@@ -546,11 +546,11 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                       <Upload className="h-7 w-7" />
                     </span>
                     <p className="mt-4 text-sm font-bold text-[#182235] dark:text-white">
-                      Add document placeholder
+                      Add document
                     </p>
                     <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500 dark:text-slate-400">
-                      We are capturing the setup request now. Real file storage
-                      can be wired in the official API integration pass.
+                      Include registration, address proof, or identity files
+                      needed for the API review.
                     </p>
                   </button>
                   <div className={cn(innerPanelClass, "p-4")}>

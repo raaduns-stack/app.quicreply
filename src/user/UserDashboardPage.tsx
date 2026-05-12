@@ -166,10 +166,9 @@ function StatCard({ stat }: { stat: DashboardStat }) {
         <div className="min-w-0">
           <p className={eyebrow}>{stat.label}</p>
           <p className={cn("mt-1 text-3xl font-bold", strong)}>{stat.value}</p>
-          <p className="mt-1 text-xs font-semibold text-emerald-500 dark:text-emerald-400">
+          <p className={cn("mt-1 text-xs font-semibold", muted)}>
             {stat.delta}
           </p>
-          <p className={cn("text-xs", muted)}>from database</p>
         </div>
       </div>
     </div>
@@ -187,28 +186,28 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
     {
       label: "Messages Received",
       value: (summary?.messagesReceived ?? 0).toLocaleString(),
-      delta: "Real",
+      delta: "All-time messages",
       icon: MessageSquare,
       tone: "green",
     },
     {
       label: "Leads Captured",
       value: (summary?.leadsCaptured ?? 0).toLocaleString(),
-      delta: "Real",
+      delta: "Saved contacts",
       icon: UserPlus,
       tone: "indigo",
     },
     {
       label: "AI Responses",
       value: (summary?.aiResponses ?? 0).toLocaleString(),
-      delta: "Real",
+      delta: "Jennifer replies",
       icon: Bot,
       tone: "blue",
     },
     {
       label: "Revenue in Pipeline",
       value: `$${(summary?.revenueInPipeline ?? 0).toLocaleString()}`,
-      delta: "Needs pipeline",
+      delta: "Pipeline value",
       icon: DollarSign,
       tone: "amber",
     },

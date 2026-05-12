@@ -573,9 +573,8 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               label: "Total Messages",
               value: metrics.totalMessages.toLocaleString(),
               sub: (
-                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
-                  Real{" "}
-                  <span className="text-slate-400 font-normal">from logs</span>
+                <span className="flex items-center gap-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  Message activity
                 </span>
               ),
             },
@@ -616,11 +615,8 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               label: "AI Replies",
               value: metrics.aiReplies.toLocaleString(),
               sub: (
-                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
-                  Real{" "}
-                  <span className="text-slate-400 font-normal">
-                    n8n replies
-                  </span>
+                <span className="flex items-center gap-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  Jennifer replies
                 </span>
               ),
             },
