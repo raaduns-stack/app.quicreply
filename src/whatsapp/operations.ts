@@ -556,23 +556,7 @@ export const getWhatsAppMessageLogs = async (
     return [];
   }
 
-  const storedLogs = await getStoredWhatsAppMessageLogs(organization.id);
-  const instanceName = getConnectedInstanceName(organization);
-
-  if (!instanceName) {
-    return storedLogs;
-  }
-
-  try {
-    const providerLogs = await fetchWhatsAppMessageLogs({
-      instanceName,
-      limit: 20,
-    });
-
-    return providerLogs.length > 0 ? providerLogs : storedLogs;
-  } catch {
-    return storedLogs;
-  }
+  return getStoredWhatsAppMessageLogs(organization.id);
 };
 
 export const startWhatsAppQrHandshake = async (

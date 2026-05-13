@@ -49,6 +49,7 @@ const EVOLUTION_INTEGRATION = "WHATSAPP-BAILEYS";
 const EVOLUTION_QR_RETRY_DELAY_MS = 1_500;
 const EVOLUTION_AUTH_ERROR_MESSAGE =
   "Evolution API rejected the request. Please verify EVOLUTION_API_KEY.";
+const QUICREPLY_PRODUCTION_URL = "https://app.quicreply.io";
 
 const QR_IMAGE_KEYS = [
   "base64",
@@ -614,6 +615,53 @@ async function createEvolutionInstance(input: EvolutionProviderInput) {
   }
 }
 
+function getWebhookBaseUrl() {
+  return (
+    env.WHATSAPP_WEBHOOK_BASE_URL ||
+    process.env.WASP_SERVER_URL ||
+    process.env.WASP_WEB_CLIENT_URL ||
+    (process.env.NODE_ENV === "production" ? QUICREPLY_PRODUCTION_URL : null)
+  )?.replace(/\/+$/, "");
+}
+
+async function configureEvolutionWebhook(input: EvolutionProviderInput) {
+  const baseUrl = getWebhookBaseUrl();
+  if (!baseUrl) {
+    return;
+  }
+
+  const webhookUrl = new URL(`${baseUrl}/webhooks/evolution/whatsapp`);
+  if (env.WHATSAPP_INBOUND_WEBHOOK_SECRET) {
+    webhookUrl.searchParams.set("secret", env.WHATSAPP_INBOUND_WEBHOOK_SECRET);
+  }
+
+  try {
+    await evolutionRequest<unknown>(
+      `/webhook/set/${encodeURIComponent(input.instanceName)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          enabled: true,
+          url: webhookUrl.toString(),
+          webhookByEvents: false,
+          webhookBase64: false,
+          events: [
+            "MESSAGES_UPSERT",
+            "MESSAGES_UPDATE",
+            "CONNECTION_UPDATE",
+            "QRCODE_UPDATED",
+          ],
+        }),
+      },
+    );
+  } catch (error) {
+    console.warn(
+      "Could not configure Evolution webhook for WhatsApp instance.",
+      error,
+    );
+  }
+}
+
 async function connectEvolutionInstance(input: EvolutionProviderInput) {
   return evolutionRequest<unknown>(
     `/instance/connect/${encodeURIComponent(input.instanceName)}`,
@@ -656,6 +704,7 @@ export async function startWhatsAppQrSession(
   }
 
   const createdInstance = await createEvolutionInstance(input);
+  await configureEvolutionWebhook(input);
   let connectResponse = await connectEvolutionInstance(input);
   let qrCodeData =
     (await normalizeQrCodeData(connectResponse)) ??
@@ -709,6 +758,7 @@ export async function refreshWhatsAppQrSessionStatus(
     return getMockWhatsAppQrStatus(input.instanceName);
   }
 
+  await configureEvolutionWebhook(input);
   const statusResponse = await getEvolutionConnectionState(input);
   let qrStatus = normalizeEvolutionState(statusResponse);
   let qrCodeData: string | null = null;

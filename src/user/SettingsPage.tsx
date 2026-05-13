@@ -321,7 +321,7 @@ const SettingsPage = ({ user }: { user: AuthUser }) => {
                           className={inputClass}
                           value={form.lastName}
                           onChange={(event) => updateField("lastName", event.target.value)}
-                          placeholder="e.g. Shaikh"
+                          placeholder="e.g. Doe"
                         />
                       </div>
                     </div>
@@ -512,7 +512,7 @@ const SettingsPage = ({ user }: { user: AuthUser }) => {
                         />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className={labelClass}>Products / Services</label>
+                        <label className={labelClass}>Describe your Business and Services in Details</label>
                         <textarea
                           className={`${inputClass} min-h-24 resize-y`}
                           value={form.productsServices}

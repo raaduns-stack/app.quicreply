@@ -268,7 +268,7 @@ export const onboardingFlowContent: Record<
     businessContextLabel: "Main outreach objective?",
     businessContextPlaceholder:
       "e.g. Booking meetings, promoting a holiday sale, or re-engaging old leads...",
-    productsLabel: "Deep Product Context",
+    productsLabel: "Describe your Business and Services in Details",
     productsPlaceholder: "Provide details for the AI to answer questions...",
     firstMessagePlaceholder:
       "Hi! We’re reaching out with something relevant for your business. Reply here and I’ll help with details.",

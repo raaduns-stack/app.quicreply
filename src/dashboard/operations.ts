@@ -1,9 +1,27 @@
 import { HttpError, prisma } from "wasp/server";
+import * as z from "zod";
 import {
   getStaffDisplayName,
   getWorkspaceCurrency,
   type WorkspaceCurrency,
 } from "../server/workspaceSettings";
+import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
+
+const dashboardTimeRanges = [
+  "current-week",
+  "today",
+  "last-7-days",
+  "current-month",
+  "all-time",
+] as const;
+
+const dashboardSummaryArgsSchema = z
+  .object({
+    timeRange: z.enum(dashboardTimeRanges).optional(),
+  })
+  .optional();
+
+export type DashboardTimeRange = (typeof dashboardTimeRanges)[number];
 
 export type DashboardSummary = {
   organizationName: string;
@@ -40,6 +58,7 @@ export type DashboardSummary = {
     failed: number;
     createdAt: string;
   } | null;
+  timeRange: DashboardTimeRange;
 };
 
 function ensureUserId(context: any) {
@@ -87,11 +106,53 @@ function normalizeApiStatus(value: string | null | undefined) {
   return "none";
 }
 
+function startOfToday(date = new Date()) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+function getDashboardStartDate(timeRange: DashboardTimeRange) {
+  const now = new Date();
+
+  if (timeRange === "all-time") {
+    return null;
+  }
+
+  if (timeRange === "today") {
+    return startOfToday(now);
+  }
+
+  if (timeRange === "last-7-days") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  if (timeRange === "current-month") {
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+
+  const start = startOfToday(now);
+  const day = start.getDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+}
+
 export const getDashboardSummary = async (
-  _args: unknown,
+  rawArgs: unknown,
   context: any,
 ): Promise<DashboardSummary> => {
   const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    dashboardSummaryArgsSchema,
+    rawArgs,
+  );
+  const timeRange = args?.timeRange ?? "current-week";
+  const startDate = getDashboardStartDate(timeRange);
+  const createdAtFilter = startDate ? { gte: startDate } : undefined;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -149,21 +210,35 @@ export const getDashboardSummary = async (
     recentLogs,
   ] = await prisma.$transaction([
     prisma.whatsAppMessageLog.count({
-      where: { organizationId: organization.id, direction: "inbound" },
+      where: {
+        organizationId: organization.id,
+        direction: "inbound",
+        createdAt: createdAtFilter,
+      },
     }),
-    prisma.contact.count({ where: { organizationId: organization.id } }),
+    prisma.contact.count({
+      where: {
+        organizationId: organization.id,
+        createdAt: createdAtFilter,
+      },
+    }),
     prisma.whatsAppMessageLog.count({
-      where: { organizationId: organization.id, source: "n8n" },
+      where: {
+        organizationId: organization.id,
+        source: "n8n",
+        createdAt: createdAtFilter,
+      },
     }),
     prisma.whatsAppMessageLog.count({
       where: {
         organizationId: organization.id,
         direction: "inbound",
         status: { notIn: ["READ", "read"] },
+        createdAt: createdAtFilter,
       },
     }),
     prisma.whatsAppMessageLog.findMany({
-      where: { organizationId: organization.id },
+      where: { organizationId: organization.id, createdAt: createdAtFilter },
       orderBy: { createdAt: "desc" },
       take: 4,
       select: {
@@ -236,5 +311,6 @@ export const getDashboardSummary = async (
           createdAt: lastCampaign.createdAt.toISOString(),
         }
       : null,
+    timeRange,
   };
 };

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import {
@@ -153,6 +154,19 @@ const DEFAULT_TAG_CLASS =
 
 const ROWS_OPTIONS = [10, 25, 50] as const;
 
+function normalizeFilterValue(value: string | null | undefined) {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizePhoneSearch(value: string) {
+  return value.replace(/\D/g, "");
+}
+
 export function makeAvi(name: string) {
   return name
     .split(" ")
@@ -280,13 +294,16 @@ function StatBar({ contacts }: { contacts: Contact[] }) {
 function RowDropdown({
   onEdit,
   onDelete,
+  onMessage,
 }: {
   onEdit: () => void;
   onDelete: () => void;
+  onMessage: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
 
   useEffect(() => {
     if (!open) return;
@@ -298,9 +315,19 @@ function RowDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    setMenuPosition({
+      top: rect.bottom + 6,
+      right: window.innerWidth - rect.right,
+    });
+  }, [open]);
+
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
+        ref={buttonRef}
         className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-400 dark:hover:border-white/20 dark:hover:bg-white/5 dark:hover:text-slate-200"
         onClick={() => setOpen((v) => !v)}
         title="More options"
@@ -308,8 +335,12 @@ function RowDropdown({
         <MoreVertical className="h-4 w-4" />
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-[calc(100%+4px)] z-50 flex w-44 flex-col rounded-lg border border-border/60 bg-card p-1 shadow-lg shadow-black/10 dark:border-white/10 dark:bg-[#0d1524] dark:shadow-black/40">
+      {open &&
+        createPortal(
+        <div
+          className="fixed z-[100] flex w-44 flex-col rounded-lg border border-border/60 bg-card p-1 shadow-lg shadow-black/10 dark:border-white/10 dark:bg-[#0d1524] dark:shadow-black/40"
+          style={{ top: menuPosition.top, right: menuPosition.right }}
+        >
           <button
             className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
             onClick={() => {
@@ -323,7 +354,7 @@ function RowDropdown({
             className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
             onClick={() => {
               setOpen(false);
-              toast({ title: "Opening inbox…" });
+              onMessage();
             }}
           >
             <MessageSquare className="h-4 w-4" /> Send Message
@@ -338,7 +369,8 @@ function RowDropdown({
           >
             <Trash2 className="h-4 w-4" /> Delete Contact
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -456,12 +488,15 @@ function ContactRow({
         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-400 dark:hover:border-white/20 dark:hover:bg-white/5 dark:hover:text-slate-200"
-            title="Send message"
-            onClick={(e) => e.stopPropagation()}
+            title="Open contact conversation"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
           >
             <MessageSquare className="h-4 w-4" />
           </button>
-          <RowDropdown onEdit={onEdit} onDelete={onDelete} />
+          <RowDropdown onEdit={onEdit} onDelete={onDelete} onMessage={onClick} />
         </div>
       </td>
     </tr>
@@ -770,25 +805,43 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
   // Filtered list
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const phoneQuery = normalizePhoneSearch(q);
     return contacts.filter((c) => {
-      if (q && !c.name.toLowerCase().includes(q) && !c.phone.includes(q))
+      const matchesSearch =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.phone.toLowerCase().includes(q) ||
+        Boolean(phoneQuery && normalizePhoneSearch(c.phone).includes(phoneQuery)) ||
+        Boolean(c.email?.toLowerCase().includes(q)) ||
+        c.tags.some((tag) => tag.toLowerCase().includes(q));
+
+      if (!matchesSearch) {
         return false;
-      if (filterStatus !== "all" && c.status !== filterStatus) return false;
+      }
+      if (
+        filterStatus !== "all" &&
+        normalizeFilterValue(c.status) !== filterStatus
+      ) {
+        return false;
+      }
       if (
         filterSource !== "all" &&
-        c.source.toLowerCase().replace(/ /g, "-") !== filterSource
-      )
+        normalizeFilterValue(c.source) !== filterSource
+      ) {
         return false;
+      }
       if (
         filterTag !== "all" &&
-        !c.tags.some((t) => t.toLowerCase() === filterTag)
-      )
+        !c.tags.some((t) => normalizeFilterValue(t) === filterTag)
+      ) {
         return false;
+      }
       if (
         filterAgent !== "all" &&
-        c.assignedTo.toLowerCase().replace(/ /g, "-") !== filterAgent
-      )
+        normalizeFilterValue(c.assignedTo) !== filterAgent
+      ) {
         return false;
+      }
       return true;
     });
   }, [contacts, search, filterStatus, filterSource, filterTag, filterAgent]);
@@ -801,6 +854,22 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
 
   function resetPage() {
     setPage(1);
+  }
+
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    filterStatus !== "all" ||
+    filterSource !== "all" ||
+    filterTag !== "all" ||
+    filterAgent !== "all";
+
+  function clearFilters() {
+    setSearch("");
+    setFilterStatus("all");
+    setFilterSource("all");
+    setFilterTag("all");
+    setFilterAgent("all");
+    resetPage();
   }
 
   // Selection
@@ -1060,10 +1129,12 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            disabled
-            title="Coming soon"
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+            title={hasActiveFilters ? "Clear active filters" : "No active filters"}
           >
-            <SlidersHorizontal className="h-4 w-4" /> More Filters
+            <SlidersHorizontal className="h-4 w-4" />
+            {hasActiveFilters ? "Clear Filters" : "Filters Ready"}
           </Button>
         </div>
 

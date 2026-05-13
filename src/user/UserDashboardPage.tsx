@@ -1,4 +1,10 @@
-import { useState, type ComponentType, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import {
@@ -16,7 +22,11 @@ import {
   UserPlus,
   Wifi,
 } from "lucide-react";
-import { getDashboardSummary, useQuery } from "wasp/client/operations";
+import {
+  getDashboardSummary,
+  refreshWhatsAppQrStatus,
+  useQuery,
+} from "wasp/client/operations";
 import { Button } from "../client/components/ui/button";
 import { cn } from "../client/utils";
 import UserLayout from "./layout/UserLayout";
@@ -60,7 +70,14 @@ type DashboardSummary = {
     failed: number;
     createdAt: string;
   } | null;
+  timeRange: DashboardTimeRange;
 };
+type DashboardTimeRange =
+  | "current-week"
+  | "today"
+  | "last-7-days"
+  | "current-month"
+  | "all-time";
 type DashboardStat = {
   label: string;
   value: string;
@@ -78,6 +95,36 @@ const subtleButton =
   "border-[#e8e2d8] bg-white text-slate-700 hover:bg-[#fff8ee] dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5";
 const eyebrow =
   "text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-400";
+
+const dashboardTimeRangeOptions: Array<{
+  value: DashboardTimeRange;
+  label: string;
+  helper: string;
+}> = [
+  { value: "current-week", label: "Current Week", helper: "This week" },
+  { value: "today", label: "Today", helper: "Today" },
+  { value: "last-7-days", label: "Last 7 Days", helper: "Last 7 days" },
+  { value: "current-month", label: "This Month", helper: "This month" },
+  { value: "all-time", label: "All Time", helper: "All time" },
+];
+
+function getTimeBasedGreeting(date = new Date()) {
+  const hour = date.getHours();
+
+  if (hour >= 5 && hour < 12) {
+    return "Good morning";
+  }
+
+  if (hour >= 12 && hour < 17) {
+    return "Good afternoon";
+  }
+
+  if (hour >= 17 && hour < 21) {
+    return "Good evening";
+  }
+
+  return "Good night";
+}
 
 function iconTone(tone: string) {
   if (tone === "green") {
@@ -191,8 +238,17 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
   const [activeTab, setActiveTab] = useState<
     "all" | "messages" | "campaigns" | "leads"
   >("all");
-  const { data, isLoading } = useQuery(getDashboardSummary);
+  const [timeRange, setTimeRange] =
+    useState<DashboardTimeRange>("current-week");
+  const [isRefreshingConnection, setIsRefreshingConnection] = useState(false);
+  const connectionSyncAttemptedRef = useRef(false);
+  const greeting = getTimeBasedGreeting();
+  const dashboardQuery = useQuery(getDashboardSummary, { timeRange });
+  const { data, isLoading } = dashboardQuery;
   const summary = data as DashboardSummary | undefined;
+  const timeRangeLabel =
+    dashboardTimeRangeOptions.find((option) => option.value === timeRange)
+      ?.helper ?? "This week";
   const staffDisplayName =
     [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
     (summary?.staffDisplayName &&
@@ -209,28 +265,28 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
     {
       label: "Messages Received",
       value: (summary?.messagesReceived ?? 0).toLocaleString(),
-      delta: "All-time messages",
+      delta: `${timeRangeLabel} messages`,
       icon: MessageSquare,
       tone: "green",
     },
     {
       label: "Leads Captured",
       value: (summary?.leadsCaptured ?? 0).toLocaleString(),
-      delta: "Saved contacts",
+      delta: `${timeRangeLabel} leads`,
       icon: UserPlus,
       tone: "indigo",
     },
     {
       label: "AI Responses",
       value: (summary?.aiResponses ?? 0).toLocaleString(),
-      delta: "Jennifer replies",
+      delta: `${timeRangeLabel} replies`,
       icon: Bot,
       tone: "blue",
     },
     {
       label: "Revenue in Pipeline",
       value: revenueFormatter.format(summary?.revenueInPipeline ?? 0),
-      delta: "Pipeline value",
+      delta: `${timeRangeLabel} pipeline`,
       currencySymbol: currency.symbol,
       tone: "amber",
     },
@@ -274,6 +330,29 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
   const isQrConnected = summary?.qrConnected ?? false;
   const apiStatus = summary?.apiStatus ?? "none";
 
+  async function handleConnectionRefresh() {
+    setIsRefreshingConnection(true);
+    try {
+      await refreshWhatsAppQrStatus({});
+      await dashboardQuery.refetch();
+    } finally {
+      setIsRefreshingConnection(false);
+    }
+  }
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      isQrConnected ||
+      connectionSyncAttemptedRef.current
+    ) {
+      return;
+    }
+
+    connectionSyncAttemptedRef.current = true;
+    void handleConnectionRefresh().catch(() => undefined);
+  }, [isLoading, isQrConnected]);
+
   return (
     <UserLayout user={user}>
       <div className="w-full space-y-5">
@@ -282,11 +361,25 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           <div>
             <h1 className={cn("text-2xl font-bold", strong)}>Dashboard</h1>
             <p className={cn("mt-1 text-sm", muted)}>
-              Good morning{staffDisplayName ? `, ${staffDisplayName}` : ""} 👋
+              {greeting}{staffDisplayName ? `, ${staffDisplayName}` : ""} 👋
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="h-10 cursor-pointer rounded-full border border-[#e8e2d8] bg-white px-3 text-xs font-bold text-slate-700 outline-none transition-colors hover:bg-[#fff8ee] focus:border-[#fe901d]/40 dark:border-white/10 dark:bg-[#111827] dark:text-slate-200 dark:hover:bg-white/5"
+              value={timeRange}
+              onChange={(event) =>
+                setTimeRange(event.target.value as DashboardTimeRange)
+              }
+              aria-label="Dashboard timeline"
+            >
+              {dashboardTimeRangeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             <DashboardPill tone="green">
               <span
                 className={cn(
@@ -344,8 +437,10 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
                 "h-8 cursor-pointer rounded-lg px-3 text-xs font-semibold ml-auto",
                 subtleButton,
               )}
+              onClick={handleConnectionRefresh}
+              disabled={isRefreshingConnection}
             >
-              Reconnect
+              {isRefreshingConnection ? "Checking..." : "Reconnect"}
             </Button>
           </div>
 
