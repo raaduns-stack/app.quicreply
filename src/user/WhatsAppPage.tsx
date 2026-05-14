@@ -334,7 +334,11 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
 
     try {
       const nextState = (await startWhatsAppQrHandshake({
-        forceFresh: qrState?.connected || qrStatus === "connected",
+        forceFresh:
+          Boolean(qrState?.sessionId) ||
+          qrState?.connected ||
+          qrStatus === "connected" ||
+          qrStatus === "failed",
       })) as WhatsAppWorkspaceState;
       setWorkspaceState(nextState);
       if (nextState.qr.status === "connected" || nextState.qr.connected) {
