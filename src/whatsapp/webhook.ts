@@ -141,6 +141,7 @@ async function findOrganizationByInstance(instanceName: string) {
     where: {
       OR: [
         { evolutionInstanceName: instanceName },
+        { evolutionInstanceId: instanceName },
         { qrSessionId: instanceName },
       ],
     },
@@ -149,6 +150,7 @@ async function findOrganizationByInstance(instanceName: string) {
       settings: true,
       isAiActive: true,
       evolutionInstanceName: true,
+      evolutionInstanceId: true,
       qrSessionId: true,
       qrConnected: true,
       qrStatus: true,
@@ -512,14 +514,26 @@ export async function evolutionWhatsAppWebhook(
     ]) ?? null;
   const messageText = extractInboundMessageText(payloadRecord);
 
+  const normalizedEvent = providerEvent.toLowerCase();
   const isMessageEvent =
-    providerEvent.toLowerCase().includes("message") || Boolean(remoteJid);
+    normalizedEvent.includes("messages.upsert") ||
+    normalizedEvent.includes("send.message") ||
+    (normalizedEvent.includes("message") && Boolean(remoteJid));
 
   if (!isMessageEvent) {
     res.status(202).json({
       ok: true,
       forwarded: false,
       reason: "non_message_event",
+    });
+    return;
+  }
+
+  if (remoteJid?.endsWith("@g.us")) {
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "group_message_ignored",
     });
     return;
   }

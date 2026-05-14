@@ -433,8 +433,9 @@ async function upsertOrganization(
   });
 }
 
-function buildEvolutionInstanceName(organizationId: string) {
-  return `quicreply-${organizationId}`.toLowerCase();
+function buildEvolutionInstanceName(organizationId: string, fresh = false) {
+  const baseName = `quicreply-${organizationId}`.toLowerCase();
+  return fresh ? `${baseName}-${Date.now().toString(36)}` : baseName;
 }
 
 function getErrorRecord(error: unknown): Record<string, unknown> | null {
@@ -569,14 +570,23 @@ export const startWhatsAppQrHandshake = async (
     rawArgs,
   );
   const organization = await ensureOrganizationForUser(userId);
-  const instanceName =
+  let instanceName =
     organization.evolutionInstanceName ??
     buildEvolutionInstanceName(organization.id);
 
   let qrResponse;
   try {
     if (args?.forceFresh) {
-      await disconnectWhatsAppQrSession({ instanceName });
+      try {
+        await disconnectWhatsAppQrSession({ instanceName });
+      } catch (error) {
+        console.warn(
+          "Could not fully disconnect the previous Evolution instance before starting a fresh QR.",
+          error,
+        );
+      }
+
+      instanceName = buildEvolutionInstanceName(organization.id, true);
     }
 
     qrResponse = await startWhatsAppQrSession({ instanceName });
@@ -766,8 +776,17 @@ export const disconnectWhatsAppQr = async (
 
   const instanceName =
     organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
+  let disconnectErrorMessage: string | null = null;
   if (instanceName) {
-    await disconnectWhatsAppQrSession({ instanceName });
+    try {
+      await disconnectWhatsAppQrSession({ instanceName });
+    } catch (error) {
+      disconnectErrorMessage = getErrorMessage(error);
+      console.warn(
+        "Could not fully disconnect Evolution instance; clearing QuicReply session state anyway.",
+        error,
+      );
+    }
   }
 
   const nextMode =
@@ -782,7 +801,7 @@ export const disconnectWhatsAppQr = async (
     qrLastSeen: null,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: null,
-    qrLastError: null,
+    qrLastError: disconnectErrorMessage,
   });
 
   return toWorkspaceState(updatedOrganization);
