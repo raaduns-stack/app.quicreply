@@ -6,6 +6,7 @@ import {
   createContact as createContactOperation,
   deleteContact as deleteContactOperation,
   getContacts,
+  sendContactWhatsAppMessage as sendContactWhatsAppMessageOperation,
   updateContact as updateContactOperation,
   useQuery,
 } from "wasp/client/operations";
@@ -153,6 +154,21 @@ const DEFAULT_TAG_CLASS =
   "bg-slate-50 text-slate-700 border-slate-200 dark:bg-white/5 dark:text-slate-300 dark:border-white/10";
 
 const ROWS_OPTIONS = [10, 25, 50] as const;
+const CONTACT_SOURCES: ContactSource[] = [
+  "Facebook Ad",
+  "Instagram",
+  "Website",
+  "WhatsApp",
+  "Landing Page",
+  "Walk-in",
+  "Other",
+];
+const CONTACT_STATUSES: ContactStatus[] = [
+  "ai-active",
+  "human-active",
+  "needs-attention",
+  "new-lead",
+];
 
 function normalizeFilterValue(value: string | null | undefined) {
   return (value ?? "")
@@ -165,6 +181,22 @@ function normalizeFilterValue(value: string | null | undefined) {
 
 function normalizePhoneSearch(value: string) {
   return value.replace(/\D/g, "");
+}
+
+function coerceContactSource(value: string): ContactSource {
+  return (
+    CONTACT_SOURCES.find(
+      (source) => normalizeFilterValue(source) === normalizeFilterValue(value),
+    ) ?? "Other"
+  );
+}
+
+function coerceContactStatus(value: string): ContactStatus {
+  return (
+    CONTACT_STATUSES.find(
+      (status) => normalizeFilterValue(status) === normalizeFilterValue(value),
+    ) ?? "new-lead"
+  );
 }
 
 export function makeAvi(name: string) {
@@ -303,13 +335,20 @@ function RowDropdown({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
+      const target = e.target as Node;
+      if (
+        ref.current &&
+        !ref.current.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
         setOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -327,8 +366,9 @@ function RowDropdown({
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
+        type="button"
         ref={buttonRef}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-400 dark:hover:border-white/20 dark:hover:bg-white/5 dark:hover:text-slate-200"
+        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-400 dark:hover:border-white/20 dark:hover:bg-white/5 dark:hover:text-slate-200"
         onClick={() => setOpen((v) => !v)}
         title="More options"
       >
@@ -338,11 +378,14 @@ function RowDropdown({
       {open &&
         createPortal(
         <div
+          ref={menuRef}
           className="fixed z-[100] flex w-44 flex-col rounded-lg border border-border/60 bg-card p-1 shadow-lg shadow-black/10 dark:border-white/10 dark:bg-[#0d1524] dark:shadow-black/40"
           style={{ top: menuPosition.top, right: menuPosition.right }}
+          onClick={(event) => event.stopPropagation()}
         >
           <button
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            type="button"
+            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
             onClick={() => {
               setOpen(false);
               onEdit();
@@ -351,7 +394,8 @@ function RowDropdown({
             <UserPen className="h-4 w-4" /> Edit Contact
           </button>
           <button
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            type="button"
+            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted"
             onClick={() => {
               setOpen(false);
               onMessage();
@@ -361,7 +405,8 @@ function RowDropdown({
           </button>
           <div className="my-1 h-px bg-border/60" />
           <button
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+            type="button"
+            className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
             onClick={() => {
               setOpen(false);
               onDelete();
@@ -384,6 +429,7 @@ function ContactRow({
   onSelect,
   onEdit,
   onDelete,
+  onMessage,
   onClick,
 }: {
   contact: Contact;
@@ -391,6 +437,7 @@ function ContactRow({
   onSelect: (checked: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onMessage: () => void;
   onClick: () => void;
 }) {
   const sm = STATUS_META[contact.status];
@@ -487,16 +534,17 @@ function ContactRow({
       <td className="px-4 py-3.5 text-right">
         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-400 dark:hover:border-white/20 dark:hover:bg-white/5 dark:hover:text-slate-200"
-            title="Open contact conversation"
+            type="button"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-border/60 bg-card text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-400 dark:hover:border-white/20 dark:hover:bg-white/5 dark:hover:text-slate-200"
+            title="Send message"
             onClick={(e) => {
               e.stopPropagation();
-              onClick();
+              onMessage();
             }}
           >
             <MessageSquare className="h-4 w-4" />
           </button>
-          <RowDropdown onEdit={onEdit} onDelete={onDelete} onMessage={onClick} />
+          <RowDropdown onEdit={onEdit} onDelete={onDelete} onMessage={onMessage} />
         </div>
       </td>
     </tr>
@@ -770,6 +818,70 @@ function DeleteModal({
   );
 }
 
+function SendMessageModal({
+  open,
+  contact,
+  message,
+  setMessage,
+  sending,
+  error,
+  onClose,
+  onSend,
+}: {
+  open: boolean;
+  contact: Contact | null;
+  message: string;
+  setMessage: (message: string) => void;
+  sending: boolean;
+  error: string;
+  onClose: () => void;
+  onSend: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="border-[#e8e2d8] bg-white text-foreground sm:max-w-[520px] dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100">
+        <DialogHeader>
+          <DialogTitle>Send WhatsApp Message</DialogTitle>
+          <DialogDescription>
+            {contact
+              ? `Send a direct WhatsApp message to ${contact.name}.`
+              : "Send a direct WhatsApp message."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {contact && (
+          <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm font-semibold text-foreground dark:border-white/10 dark:bg-[#0b1324]">
+            {contact.phone}
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
+            {error}
+          </div>
+        )}
+
+        <Textarea
+          className="min-h-32 border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
+          placeholder="Type the WhatsApp message..."
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={sending}>
+            Cancel
+          </Button>
+          <Button onClick={onSend} disabled={sending || !message.trim()}>
+            {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Send Message
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ContactsPage({ user }: { user: AuthUser }) {
@@ -801,6 +913,12 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
   const [draftError, setDraftError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messagingContact, setMessagingContact] = useState<Contact | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messageError, setMessageError] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Filtered list
   const filtered = useMemo(() => {
@@ -981,6 +1099,172 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
     }
   }
 
+  function openMessage(contact: Contact) {
+    setMessagingContact(contact);
+    setMessageDraft("");
+    setMessageError("");
+    setMessageOpen(true);
+  }
+
+  async function sendMessage() {
+    if (!messagingContact || !messageDraft.trim()) {
+      setMessageError("Type a message first.");
+      return;
+    }
+
+    setMessageSending(true);
+    setMessageError("");
+    try {
+      await sendContactWhatsAppMessageOperation({
+        contactId: messagingContact.id,
+        message: messageDraft.trim(),
+      });
+      toast({ title: "Message sent" });
+      setMessageOpen(false);
+      setMessagingContact(null);
+      setMessageDraft("");
+      await contactsQuery.refetch?.();
+    } catch (err: any) {
+      setMessageError(err?.message || "Could not send message.");
+    } finally {
+      setMessageSending(false);
+    }
+  }
+
+  function exportContacts() {
+    const rows = filtered.length > 0 ? filtered : contacts;
+    const headers = [
+      "name",
+      "phone",
+      "email",
+      "source",
+      "status",
+      "tags",
+      "assignedTo",
+      "notes",
+      "lastMessage",
+    ];
+    const escapeCsv = (value: unknown) =>
+      `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      headers.join(","),
+      ...rows.map((contact) =>
+        [
+          contact.name,
+          contact.phone,
+          contact.email ?? "",
+          contact.source,
+          contact.status,
+          contact.tags.join("|"),
+          contact.assignedTo,
+          contact.notes ?? "",
+          contact.lastMsg === "No messages yet" ? "" : contact.lastMsg,
+        ]
+          .map(escapeCsv)
+          .join(","),
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `quicreply-contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function parseCsvLine(line: string) {
+    const values: string[] = [];
+    let current = "";
+    let quoted = false;
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+      const next = line[index + 1];
+      if (char === '"' && quoted && next === '"') {
+        current += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = !quoted;
+      } else if (char === "," && !quoted) {
+        values.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim());
+    return values;
+  }
+
+  async function importContacts(file: File) {
+    const text = await file.text();
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      toast({
+        variant: "destructive",
+        title: "Import file is empty",
+        description: "Use a CSV with name and phone columns.",
+      });
+      return;
+    }
+
+    const headers = parseCsvLine(lines[0]).map((header) =>
+      header.toLowerCase().replace(/\s+/g, ""),
+    );
+    let imported = 0;
+    let failed = 0;
+
+    for (const line of lines.slice(1)) {
+      const values = parseCsvLine(line);
+      const getValue = (key: string) => {
+        const index = headers.indexOf(key);
+        return index >= 0 ? values[index] ?? "" : "";
+      };
+
+      const name = getValue("name") || getValue("fullname");
+      const phone = getValue("phone") || getValue("whatsapp");
+      if (!name || !phone) {
+        failed += 1;
+        continue;
+      }
+
+      try {
+        await createContactOperation({
+          name,
+          phone,
+          email: getValue("email"),
+          source: coerceContactSource(getValue("source")),
+          status: coerceContactStatus(getValue("status")),
+          assignedTo: getValue("assignedto") || "",
+          tags: (getValue("tags") || "Interested")
+            .split(/[|,]/)
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+          notes: getValue("notes"),
+        });
+        imported += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+
+    await contactsQuery.refetch?.();
+    toast({
+      title: "Import finished",
+      description:
+        failed > 0
+          ? `${imported} imported, ${failed} skipped.`
+          : `${imported} contacts imported.`,
+    });
+  }
+
   // Page numbers
   const pageNumbers = useMemo(() => {
     if (totalPages <= 7)
@@ -1061,12 +1345,25 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  void importContacts(file);
+                }
+                event.target.value = "";
+              }}
+            />
             <Button
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled
-              title="Coming soon"
+              onClick={() => importInputRef.current?.click()}
+              title="Import contacts from CSV"
             >
               <Upload className="h-4 w-4" /> Import
             </Button>
@@ -1074,8 +1371,9 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled
-              title="Coming soon"
+              onClick={exportContacts}
+              disabled={contacts.length === 0}
+              title="Export contacts to CSV"
             >
               <Download className="h-4 w-4" /> Export
             </Button>
@@ -1219,6 +1517,7 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
                       }
                       onEdit={() => openEdit(contact)}
                       onDelete={() => openDelete(contact)}
+                      onMessage={() => openMessage(contact)}
                       onClick={() => navigate(`/contacts/${contact.id}`)}
                     />
                   ))
@@ -1312,6 +1611,16 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
         name={deletingContact?.name ?? ""}
         onClose={() => setDeleteOpen(false)}
         onConfirm={confirmDelete}
+      />
+      <SendMessageModal
+        open={messageOpen}
+        contact={messagingContact}
+        message={messageDraft}
+        setMessage={setMessageDraft}
+        sending={messageSending}
+        error={messageError}
+        onClose={() => setMessageOpen(false)}
+        onSend={sendMessage}
       />
     </UserLayout>
   );

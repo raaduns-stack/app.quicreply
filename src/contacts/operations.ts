@@ -2,6 +2,7 @@ import { type Prisma } from "@prisma/client";
 import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
+import { sendWhatsAppTextMessage } from "../whatsapp/provider";
 
 const contactStatuses = [
   "ai-active",
@@ -61,6 +62,11 @@ const updateContactArgsSchema = contactInputSchema.extend({
 
 const deleteContactArgsSchema = z.object({
   id: z.string().uuid(),
+});
+
+const sendContactWhatsAppMessageArgsSchema = z.object({
+  contactId: z.string().uuid(),
+  message: z.string().trim().min(1).max(1000),
 });
 
 type ContactRecord = Prisma.ContactGetPayload<Record<string, never>>;
@@ -337,6 +343,118 @@ export const deleteContact = async (
       organizationId: organization.id,
     },
   });
+
+  return { success: true };
+};
+
+function getConnectedInstanceName(organization: {
+  qrConnected: boolean;
+  qrStatus: string | null;
+  qrSessionId: string | null;
+  evolutionInstanceName: string | null;
+}) {
+  if (!organization.qrConnected && organization.qrStatus !== "connected") {
+    return null;
+  }
+
+  return organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
+}
+
+function getErrorMessage(error: unknown) {
+  const record =
+    error && typeof error === "object"
+      ? (error as {
+          provider?: string;
+          providerMessage?: unknown;
+          providerStatus?: unknown;
+          evolutionStatus?: unknown;
+        })
+      : null;
+
+  if (typeof record?.providerMessage === "string" && record.providerMessage) {
+    return record.providerMessage;
+  }
+
+  if (
+    record?.provider === "evolution" &&
+    (record.providerStatus === 500 || record.evolutionStatus === 500)
+  ) {
+    return "Evolution API rejected the send request. Check that the QR session is still connected and the recipient number includes the country code.";
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Could not send WhatsApp message.";
+}
+
+export const sendContactWhatsAppMessage = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<{ success: true }> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    sendContactWhatsAppMessageArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+  const contact = await prisma.contact.findFirst({
+    where: {
+      id: args.contactId,
+      organizationId: organization.id,
+    },
+  });
+
+  if (!contact) {
+    throw new HttpError(404, "Contact not found.");
+  }
+
+  const instanceName = getConnectedInstanceName(organization);
+  if (!instanceName) {
+    throw new HttpError(400, "Connect WhatsApp QR before sending messages.");
+  }
+
+  try {
+    const result = await sendWhatsAppTextMessage({
+      instanceName,
+      phoneNumber: contact.phone,
+      message: args.message,
+    });
+
+    await prisma.$transaction([
+      prisma.whatsAppMessageLog.create({
+        data: {
+          organizationId: organization.id,
+          instanceName,
+          direction: "outbound",
+          to: contact.phone,
+          pushName: contact.name,
+          messageType: "conversation",
+          text: args.message,
+          status: result.status ?? "SENT",
+          source: "app",
+          providerEvent: "contact_message",
+          providerMessageId: result.providerMessageId,
+          rawPayload: result.rawResponse as any,
+        },
+      }),
+      prisma.contact.update({
+        where: { id: contact.id },
+        data: {
+          lastMessage: args.message,
+          lastMessageAt: new Date(),
+          lastMessageDirection: "outbound",
+        },
+      }),
+    ]);
+  } catch (error) {
+    console.error("Could not send contact WhatsApp message", error);
+    throw new HttpError(
+      502,
+      `Could not send WhatsApp message. ${getErrorMessage(error)}`,
+    );
+  }
 
   return { success: true };
 };

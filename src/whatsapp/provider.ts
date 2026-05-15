@@ -337,10 +337,12 @@ async function evolutionRequest<T>(
       provider?: "evolution";
       providerStatus?: number;
       evolutionStatus?: number;
+      providerMessage?: string;
     };
     error.provider = "evolution";
     error.providerStatus = response.status;
     error.evolutionStatus = response.status;
+    error.providerMessage = message;
     throw error;
   }
 

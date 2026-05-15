@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import {
   getContact,
+  sendContactWhatsAppMessage as sendContactWhatsAppMessageOperation,
   updateContact as updateContactOperation,
   useQuery,
 } from "wasp/client/operations";
@@ -21,6 +22,15 @@ import {
 } from "lucide-react";
 import UserLayout from "./layout/UserLayout";
 import { Button } from "../client/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../client/components/ui/dialog";
+import { Textarea } from "../client/components/ui/textarea";
 import { useToast } from "../client/hooks/use-toast";
 import { cn } from "../client/utils";
 import {
@@ -165,14 +175,17 @@ function ProfileSidebar({
   contact: Contact;
   onSaveNotes: (notes: string) => void;
 }) {
-  const [notes, setNotes] = useState(
-    contact.notes ?? "No internal notes yet. Click to add some.",
-  );
+  const [notes, setNotes] = useState(contact.notes ?? "");
   const [dirty, setDirty] = useState(false);
   const sm = STATUS_META[contact.status];
 
+  useEffect(() => {
+    setNotes(contact.notes ?? "");
+    setDirty(false);
+  }, [contact.id, contact.notes]);
+
   return (
-    <aside className="flex w-80 flex-shrink-0 flex-col gap-6 overflow-y-auto border-r border-border/60 bg-card p-8">
+    <aside className="flex w-80 flex-shrink-0 flex-col gap-6 overflow-y-auto border-r border-[#e8e2d8] bg-white p-8 dark:border-white/10 dark:bg-[#0d1524]">
       {/* Avatar + name + status badge */}
       <div className="flex flex-col items-center gap-3 text-center">
         <div
@@ -285,11 +298,12 @@ function ProfileSidebar({
         </p>
         <textarea
           value={notes}
+          placeholder="No internal notes yet. Click to add some."
           onChange={(e) => {
             setNotes(e.target.value);
             setDirty(true);
           }}
-          className="w-full resize-none rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm italic leading-relaxed text-slate-700 outline-none transition-colors focus:border-amber-300 focus:bg-amber-50 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-slate-300"
+          className="w-full resize-none rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-sm leading-relaxed text-[#182235] caret-[#fe901d] outline-none transition-colors placeholder:italic placeholder:text-slate-500 focus:border-[#fe901d] focus:bg-amber-50 dark:!border-[#fe901d]/60 dark:!bg-[#111827] dark:!text-slate-100 dark:placeholder:!text-slate-500"
           rows={5}
         />
         {dirty && (
@@ -306,6 +320,62 @@ function ProfileSidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+function ContactMessageDialog({
+  open,
+  contact,
+  message,
+  setMessage,
+  sending,
+  error,
+  onClose,
+  onSend,
+}: {
+  open: boolean;
+  contact: Contact;
+  message: string;
+  setMessage: (message: string) => void;
+  sending: boolean;
+  error: string;
+  onClose: () => void;
+  onSend: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
+      <DialogContent className="border-[#e8e2d8] bg-white text-foreground sm:max-w-[520px] dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100">
+        <DialogHeader>
+          <DialogTitle>Send WhatsApp Message</DialogTitle>
+          <DialogDescription>
+            Send a direct WhatsApp message to {contact.name}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm font-semibold text-foreground dark:border-white/10 dark:bg-[#0b1324]">
+          {contact.phone}
+        </div>
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive">
+            {error}
+          </div>
+        )}
+        <Textarea
+          className="min-h-32 border-[#e8e2d8] bg-[#f7f8fa] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
+          placeholder="Type the WhatsApp message..."
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+        />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={sending}>
+            Cancel
+          </Button>
+          <Button onClick={onSend} disabled={sending || !message.trim()}>
+            {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Send Message
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -381,6 +451,11 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
   const { contactId } = useParams<{ contactId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messageError, setMessageError] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   // Fetch contact from the real database
   const contactQuery = useQuery(getContact, { id: contactId ?? "" });
@@ -450,13 +525,36 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
     }
   }
 
+  async function handleSendMessage() {
+    if (!contact || !messageDraft.trim()) {
+      setMessageError("Type a message first.");
+      return;
+    }
+
+    setMessageSending(true);
+    setMessageError("");
+    try {
+      await sendContactWhatsAppMessageOperation({
+        contactId: contact.id,
+        message: messageDraft.trim(),
+      });
+      toast({ title: "Message sent" });
+      setMessageOpen(false);
+      setMessageDraft("");
+      await contactQuery.refetch?.();
+    } catch (err: any) {
+      setMessageError(err?.message || "Could not send message.");
+    } finally {
+      setMessageSending(false);
+    }
+  }
+
   return (
     <UserLayout user={user}>
-      {/* Override the default layout padding with a full-bleed flex layout */}
-      <div className="-m-4 flex min-h-[calc(100vh-64px)] flex-col md:-m-6 2xl:-m-10">
+      <div className="-m-4 flex min-h-[calc(100vh-64px)] flex-col bg-[#f7f8fa] md:-m-6 2xl:-m-10 dark:bg-[#0b1324]">
 
         {/* ── Top bar ── */}
-        <div className="flex items-center justify-between border-b border-border/60 bg-card px-6 py-3">
+        <div className="flex items-center justify-between border-b border-[#e8e2d8] bg-white px-6 py-3 dark:border-white/10 dark:bg-[#0d1524]">
           <button
             onClick={() => navigate("/contacts")}
             className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
@@ -476,7 +574,7 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
           <ProfileSidebar contact={contact} onSaveNotes={handleSaveNotes} />
 
           {/* Right: interaction timeline */}
-          <div className="flex-1 overflow-y-auto bg-slate-50/50 p-8 dark:bg-[#0b1220]/50 md:p-10">
+          <div className="flex-1 overflow-y-auto bg-[#f7f8fa] p-8 dark:bg-[#0b1324] md:p-10">
             <div className="mx-auto max-w-2xl">
 
               {/* Timeline header */}
@@ -488,8 +586,11 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
                   <Button
                     size="sm"
                     className="gap-1.5"
-                    disabled
-                    title="Coming soon"
+                    onClick={() => {
+                      setMessageDraft("");
+                      setMessageError("");
+                      setMessageOpen(true);
+                    }}
                   >
                     <Send className="h-4 w-4" /> Send Message
                   </Button>
@@ -497,8 +598,7 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
                     size="sm"
                     variant="outline"
                     className="gap-1.5"
-                    disabled
-                    title="Coming soon"
+                    onClick={() => setScheduleOpen(true)}
                   >
                     <Calendar className="h-4 w-4" /> Schedule Call
                   </Button>
@@ -516,7 +616,6 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
                   <button
                     key={chip.label}
                     disabled
-                    title="Coming soon"
                     className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {chip.icon} {chip.label}
@@ -531,6 +630,32 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
 
         </div>
       </div>
+      <ContactMessageDialog
+        open={messageOpen}
+        contact={contact}
+        message={messageDraft}
+        setMessage={setMessageDraft}
+        sending={messageSending}
+        error={messageError}
+        onClose={() => setMessageOpen(false)}
+        onSend={handleSendMessage}
+      />
+      <Dialog open={scheduleOpen} onOpenChange={(value) => !value && setScheduleOpen(false)}>
+        <DialogContent className="border-[#e8e2d8] bg-white text-foreground sm:max-w-[460px] dark:border-white/10 dark:bg-[#0d1524] dark:text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Schedule Call</DialogTitle>
+            <DialogDescription>
+              Calendar scheduling will use the team calendar once that integration is enabled.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm font-semibold text-foreground dark:border-white/10 dark:bg-[#0b1324]">
+            {contact.phone}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setScheduleOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </UserLayout>
   );
 }

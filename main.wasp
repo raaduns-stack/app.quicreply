@@ -362,6 +362,12 @@ action deleteContact {
   auth: true
 }
 
+action sendContactWhatsAppMessage {
+  fn: import { sendContactWhatsAppMessage } from "@src/contacts/operations",
+  entities: [User, Organization, Contact, WhatsAppMessageLog],
+  auth: true
+}
+
 query getCampaigns {
   fn: import { getCampaigns } from "@src/campaigns/operations",
   entities: [User, Organization, Campaign],
