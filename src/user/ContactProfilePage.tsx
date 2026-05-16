@@ -543,7 +543,12 @@ export default function ContactProfilePage({ user }: { user: AuthUser }) {
       setMessageDraft("");
       await contactQuery.refetch?.();
     } catch (err: any) {
-      setMessageError(err?.message || "Could not send message.");
+      setMessageError(
+        err?.response?.data?.message ||
+          err?.data?.message ||
+          err?.message ||
+          "Could not send message.",
+      );
     } finally {
       setMessageSending(false);
     }

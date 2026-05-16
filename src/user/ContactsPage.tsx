@@ -1106,6 +1106,15 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
     setMessageOpen(true);
   }
 
+  function getOperationErrorMessage(err: any, fallback: string) {
+    return (
+      err?.response?.data?.message ||
+      err?.data?.message ||
+      err?.message ||
+      fallback
+    );
+  }
+
   async function sendMessage() {
     if (!messagingContact || !messageDraft.trim()) {
       setMessageError("Type a message first.");
@@ -1125,7 +1134,7 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
       setMessageDraft("");
       await contactsQuery.refetch?.();
     } catch (err: any) {
-      setMessageError(err?.message || "Could not send message.");
+      setMessageError(getOperationErrorMessage(err, "Could not send message."));
     } finally {
       setMessageSending(false);
     }

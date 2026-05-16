@@ -643,20 +643,19 @@ async function configureEvolutionWebhook(input: EvolutionProviderInput) {
       {
         method: "POST",
         body: JSON.stringify({
-          webhook: {
-            enabled: true,
-            url: webhookUrl.toString(),
-            webhookByEvents: false,
-            webhook_by_events: false,
-            webhookBase64: false,
-            webhook_base64: false,
-            events: [
-              "MESSAGES_UPSERT",
-              "MESSAGES_UPDATE",
-              "CONNECTION_UPDATE",
-              "QRCODE_UPDATED",
-            ],
-          },
+          enabled: true,
+          url: webhookUrl.toString(),
+          webhookByEvents: false,
+          webhook_by_events: false,
+          webhookBase64: false,
+          webhook_base64: false,
+          events: [
+            "MESSAGES_UPSERT",
+            "MESSAGES_UPDATE",
+            "CONNECTION_UPDATE",
+            "QRCODE_UPDATED",
+            "SEND_MESSAGE",
+          ],
         }),
       },
     );

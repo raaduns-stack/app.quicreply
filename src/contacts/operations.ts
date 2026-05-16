@@ -371,15 +371,15 @@ function getErrorMessage(error: unknown) {
         })
       : null;
 
-  if (typeof record?.providerMessage === "string" && record.providerMessage) {
-    return record.providerMessage;
-  }
-
   if (
     record?.provider === "evolution" &&
     (record.providerStatus === 500 || record.evolutionStatus === 500)
   ) {
     return "Evolution API rejected the send request. Check that the QR session is still connected and the recipient number includes the country code.";
+  }
+
+  if (typeof record?.providerMessage === "string" && record.providerMessage) {
+    return record.providerMessage;
   }
 
   if (error instanceof Error && error.message) {
