@@ -314,6 +314,17 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     () => getQrImageSrc(qrState?.codeData ?? null),
     [qrState?.codeData],
   );
+
+  useEffect(() => {
+    if (!isQrPreviewOpen) {
+      return;
+    }
+
+    if (qrState?.connected || qrStatus === "connected" || !qrImageSrc) {
+      setIsQrPreviewOpen(false);
+    }
+  }, [isQrPreviewOpen, qrImageSrc, qrState?.connected, qrStatus]);
+
   const connectedAccount =
     qrState?.deviceInfo && !qrState.deviceInfo.startsWith("quicreply-")
       ? qrState.deviceInfo
