@@ -158,22 +158,75 @@ async function findOrganizationByInstance(instanceName: string) {
   });
 }
 
-function extractInboundMessageText(payload: Record<string, unknown>) {
+function getRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function extractMessageRecord(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  return (
+    getRecord(getNestedValue(payload, ["data", "message"])) ??
+    getRecord(getNestedValue(payload, ["message"]))
+  );
+}
+
+function extractMessageType(payload: Record<string, unknown>) {
   return (
     findFirstStringByPaths(payload, [
-      ["data", "message", "conversation"],
-      ["data", "message", "extendedTextMessage", "text"],
-      ["data", "message", "imageMessage", "caption"],
-      ["data", "message", "videoMessage", "caption"],
-      ["message", "conversation"],
-      ["message", "extendedTextMessage", "text"],
-      ["message", "imageMessage", "caption"],
-      ["message", "videoMessage", "caption"],
-      ["data", "text"],
-      ["text"],
-      ["body"],
-    ]) ?? "Unsupported message type"
+      ["data", "messageType"],
+      ["messageType"],
+      ["data", "type"],
+      ["type"],
+    ]) ?? null
   );
+}
+
+function getMediaFallbackLabel(messageType: string | null) {
+  switch (messageType) {
+    case "imageMessage":
+      return "Image message";
+    case "videoMessage":
+      return "Video message";
+    case "audioMessage":
+      return "Voice message";
+    case "documentMessage":
+      return "Document message";
+    case "stickerMessage":
+      return "Sticker";
+    case "locationMessage":
+      return "Location shared";
+    case "contactsArrayMessage":
+    case "contactMessage":
+      return "Contact shared";
+    default:
+      return null;
+  }
+}
+
+function extractInboundMessageText(
+  payload: Record<string, unknown>,
+  messageType: string | null,
+) {
+  const directText = findFirstStringByPaths(payload, [
+    ["data", "message", "conversation"],
+    ["data", "message", "extendedTextMessage", "text"],
+    ["data", "message", "imageMessage", "caption"],
+    ["data", "message", "videoMessage", "caption"],
+    ["data", "message", "documentMessage", "caption"],
+    ["message", "conversation"],
+    ["message", "extendedTextMessage", "text"],
+    ["message", "imageMessage", "caption"],
+    ["message", "videoMessage", "caption"],
+    ["message", "documentMessage", "caption"],
+    ["data", "text"],
+    ["text"],
+    ["body"],
+  ]);
+
+  return directText ?? getMediaFallbackLabel(messageType);
 }
 
 function normalizeWhatsAppPhone(value: string | null | undefined) {
@@ -207,6 +260,27 @@ function extractInboundRemoteJid(payload: Record<string, unknown>) {
     ["from"],
     ["sender"],
   ]);
+}
+
+function extractInboundRemoteJidAlt(payload: Record<string, unknown>) {
+  return findFirstStringByPaths(payload, [
+    ["data", "key", "remoteJidAlt"],
+    ["key", "remoteJidAlt"],
+    ["data", "remoteJidAlt"],
+    ["remoteJidAlt"],
+  ]);
+}
+
+function isLidJid(value: string | null | undefined) {
+  return Boolean(value?.includes("@lid"));
+}
+
+function getContactJid(primaryJid: string | null, alternateJid: string | null) {
+  if (isLidJid(primaryJid) && alternateJid) {
+    return alternateJid;
+  }
+
+  return primaryJid;
 }
 
 function extractInboundMessageId(payload: Record<string, unknown>) {
@@ -505,6 +579,8 @@ export async function evolutionWhatsAppWebhook(
 
   const direction = extractInboundDirection(payloadRecord);
   const remoteJid = extractInboundRemoteJid(payloadRecord);
+  const remoteJidAlt = extractInboundRemoteJidAlt(payloadRecord);
+  const contactJid = getContactJid(remoteJid, remoteJidAlt);
   const pushName =
     findFirstStringByPaths(payloadRecord, [
       ["data", "pushName"],
@@ -512,24 +588,26 @@ export async function evolutionWhatsAppWebhook(
       ["data", "name"],
       ["name"],
     ]) ?? null;
-  const messageText = extractInboundMessageText(payloadRecord);
+  const messageType = extractMessageType(payloadRecord);
+  const messageRecord = extractMessageRecord(payloadRecord);
+  const messageText = extractInboundMessageText(payloadRecord, messageType);
 
   const normalizedEvent = providerEvent.toLowerCase();
+  const canonicalEvent = normalizedEvent.replace(/_/g, ".");
   const isMessageEvent =
-    normalizedEvent.includes("messages.upsert") ||
-    normalizedEvent.includes("send.message") ||
-    (normalizedEvent.includes("message") && Boolean(remoteJid));
+    canonicalEvent.includes("messages.upsert") ||
+    canonicalEvent.includes("send.message");
 
-  if (!isMessageEvent) {
+  if (!isMessageEvent || !messageRecord || !messageText) {
     res.status(202).json({
       ok: true,
       forwarded: false,
-      reason: "non_message_event",
+      reason: !isMessageEvent ? "non_message_event" : "message_without_body",
     });
     return;
   }
 
-  if (remoteJid?.endsWith("@g.us")) {
+  if (contactJid?.endsWith("@g.us")) {
     res.status(202).json({
       ok: true,
       forwarded: false,
@@ -542,16 +620,10 @@ export async function evolutionWhatsAppWebhook(
     organizationId: organization.id,
     instanceName,
     direction,
-    from: direction === "inbound" ? remoteJid : null,
-    to: direction === "outbound" ? remoteJid : null,
+    from: direction === "inbound" ? contactJid : null,
+    to: direction === "outbound" ? contactJid : null,
     pushName,
-    messageType:
-      findFirstStringByPaths(payloadRecord, [
-        ["data", "messageType"],
-        ["messageType"],
-        ["data", "type"],
-        ["type"],
-      ]) ?? null,
+    messageType,
     text: messageText,
     status:
       findFirstStringByPaths(payloadRecord, [["data", "status"], ["status"]]) ??
@@ -565,8 +637,8 @@ export async function evolutionWhatsAppWebhook(
   await upsertContactFromWhatsApp({
     organizationId: organization.id,
     direction,
-    from: direction === "inbound" ? remoteJid : null,
-    to: direction === "outbound" ? remoteJid : null,
+    from: direction === "inbound" ? contactJid : null,
+    to: direction === "outbound" ? contactJid : null,
     pushName,
     text: messageText,
   });

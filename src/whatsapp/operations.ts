@@ -530,7 +530,13 @@ async function getStoredWhatsAppMessageLogs(
   limit = 20,
 ): Promise<WhatsAppMessageLog[]> {
   const logs = await prisma.whatsAppMessageLog.findMany({
-    where: { organizationId },
+    where: {
+      organizationId,
+      NOT: {
+        text: "Unsupported message type",
+        messageType: null,
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: Math.min(Math.max(limit, 1), 50),
   });
