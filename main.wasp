@@ -368,6 +368,42 @@ action sendContactWhatsAppMessage {
   auth: true
 }
 
+query getInboxThreads {
+  fn: import { getInboxThreads } from "@src/inbox/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+query getInboxThreadMessages {
+  fn: import { getInboxThreadMessages } from "@src/inbox/operations",
+  entities: [User, Organization, Contact, WhatsAppMessageLog],
+  auth: true
+}
+
+action markInboxThreadRead {
+  fn: import { markInboxThreadRead } from "@src/inbox/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+action toggleInboxThreadAi {
+  fn: import { toggleInboxThreadAi } from "@src/inbox/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+action resolveInboxThread {
+  fn: import { resolveInboxThread } from "@src/inbox/operations",
+  entities: [User, Organization, Contact],
+  auth: true
+}
+
+action sendInboxMessage {
+  fn: import { sendInboxMessage } from "@src/inbox/operations",
+  entities: [User, Organization, Contact, WhatsAppMessageLog],
+  auth: true
+}
+
 query getCampaigns {
   fn: import { getCampaigns } from "@src/campaigns/operations",
   entities: [User, Organization, Campaign],

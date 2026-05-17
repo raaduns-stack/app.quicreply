@@ -404,7 +404,7 @@ async function upsertContactFromWhatsApp({
   const now = new Date();
   const fallbackName = pushName?.trim() || phone;
 
-  await prisma.contact.upsert({
+  return prisma.contact.upsert({
     where: {
       organizationId_phone: {
         organizationId,
@@ -417,6 +417,8 @@ async function upsertContactFromWhatsApp({
       lastMessage: text || "Unsupported message type",
       lastMessageAt: now,
       lastMessageDirection: direction,
+      resolvedAt: direction === "inbound" ? null : undefined,
+      unreadCount: direction === "inbound" ? { increment: 1 } : undefined,
     },
     create: {
       organizationId,
@@ -429,6 +431,8 @@ async function upsertContactFromWhatsApp({
       lastMessage: text || "Unsupported message type",
       lastMessageAt: now,
       lastMessageDirection: direction,
+      isAiActive: true,
+      unreadCount: direction === "inbound" ? 1 : 0,
     },
   });
 }
@@ -634,7 +638,7 @@ export async function evolutionWhatsAppWebhook(
     rawPayload: payload,
   });
 
-  await upsertContactFromWhatsApp({
+  const contact = await upsertContactFromWhatsApp({
     organizationId: organization.id,
     direction,
     from: direction === "inbound" ? contactJid : null,
@@ -663,6 +667,15 @@ export async function evolutionWhatsAppWebhook(
       ok: true,
       forwarded: false,
       reason: "jennifer_inactive",
+    });
+    return;
+  }
+
+  if (!contact || !contact.isAiActive) {
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: contact ? "contact_ai_paused" : "contact_not_found",
     });
     return;
   }

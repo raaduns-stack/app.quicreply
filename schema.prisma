@@ -90,6 +90,10 @@ model Contact {
   lastMessageAt        DateTime?
   lastMessageDirection String?
   avatarColor          String?
+  isAiActive           Boolean             @default(true)
+  unreadCount          Int                 @default(0)
+  lastReadAt           DateTime?
+  resolvedAt           DateTime?
   campaignRecipients   CampaignRecipient[]
 
   @@unique([organizationId, phone])
