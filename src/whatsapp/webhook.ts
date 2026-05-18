@@ -402,7 +402,9 @@ async function upsertContactFromWhatsApp({
   }
 
   const now = new Date();
-  const fallbackName = pushName?.trim() || phone;
+  const safePushName = getSafeContactPushName(pushName);
+  const inboundPushName = direction === "inbound" ? safePushName : null;
+  const fallbackName = inboundPushName || phone;
 
   return prisma.contact.upsert({
     where: {
@@ -412,7 +414,7 @@ async function upsertContactFromWhatsApp({
       },
     },
     update: {
-      name: pushName?.trim() || undefined,
+      name: inboundPushName || undefined,
       source: "WhatsApp",
       lastMessage: text || "Unsupported message type",
       lastMessageAt: now,
@@ -435,6 +437,22 @@ async function upsertContactFromWhatsApp({
       unreadCount: direction === "inbound" ? 1 : 0,
     },
   });
+}
+
+function getSafeContactPushName(value?: string | null) {
+  const name = value?.trim();
+
+  if (!name) {
+    return null;
+  }
+
+  // Evolution/Baileys can send the sender label for outbound messages as
+  // "Você" ("You"). That is metadata about our own session, not the customer.
+  if (["you", "você", "voce"].includes(name.toLowerCase())) {
+    return null;
+  }
+
+  return name;
 }
 
 async function findOrganizationForReply(payload: Record<string, unknown>) {
