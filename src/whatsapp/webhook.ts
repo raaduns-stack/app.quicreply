@@ -582,19 +582,24 @@ export async function evolutionWhatsAppWebhook(
   const connectionState = normalizeConnectionState(payloadRecord);
 
   if (connectionState) {
+    const isConnected = connectionState === "connected";
     await prisma.organization.update({
       where: { id: organization.id },
       data: {
-        qrConnected: connectionState === "connected",
+        qrConnected: isConnected,
         qrStatus: connectionState,
+        qrCodeData: isConnected ? undefined : null,
         qrStatusCheckedAt: new Date(),
         qrLastSeen:
-          connectionState === "connected"
+          isConnected
             ? new Date()
             : organization.qrConnected
               ? new Date()
               : undefined,
-        qrLastError: null,
+        qrDeviceInfo: isConnected ? undefined : null,
+        qrLastError: isConnected
+          ? null
+          : "WhatsApp was disconnected from the phone or Linked Devices. Start a fresh QR to reconnect.",
       },
     });
   }

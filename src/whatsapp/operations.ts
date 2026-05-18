@@ -2,6 +2,7 @@ import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
 import {
+  cleanupStaleEvolutionInstancesForOrganization,
   disconnectWhatsAppQrSession,
   fetchWhatsAppMessageLogs,
   refreshWhatsAppQrSessionStatus,
@@ -490,6 +491,26 @@ async function markQrProviderFailure(
   });
 }
 
+async function cleanupStaleEvolutionInstancesForOrg(
+  organizationId: string,
+  keepInstanceName?: string | null,
+) {
+  const cleanup = await cleanupStaleEvolutionInstancesForOrganization({
+    organizationId,
+    keepInstanceName,
+  });
+
+  if (cleanup.deleted.length > 0 || cleanup.failed.length > 0) {
+    console.info("Evolution stale instance cleanup finished.", {
+      organizationId,
+      deleted: cleanup.deleted,
+      failed: cleanup.failed,
+    });
+  }
+
+  return cleanup;
+}
+
 async function ensureOrganizationForUser(userId: string) {
   const organization = await findOrganization(userId);
   if (organization) {
@@ -579,10 +600,11 @@ export const startWhatsAppQrHandshake = async (
   const canReuseStoredInstance =
     normalizeQrStatus(organization.qrStatus) === "connected" ||
     normalizeQrStatus(organization.qrStatus) === "pending";
-  let instanceName =
-    organization.qrSessionId ??
-    (canReuseStoredInstance ? organization.evolutionInstanceName : null) ??
-    buildEvolutionInstanceName(organization.id);
+  let instanceName = canReuseStoredInstance
+    ? (organization.qrSessionId ??
+        organization.evolutionInstanceName ??
+        buildEvolutionInstanceName(organization.id, true))
+    : buildEvolutionInstanceName(organization.id, true);
 
   let qrResponse;
   try {
@@ -597,6 +619,10 @@ export const startWhatsAppQrHandshake = async (
       }
 
       instanceName = buildEvolutionInstanceName(organization.id, true);
+    }
+
+    if (!canReuseStoredInstance || args?.forceFresh) {
+      await cleanupStaleEvolutionInstancesForOrg(organization.id, instanceName);
     }
 
     qrResponse = await startWhatsAppQrSession({ instanceName });
@@ -659,6 +685,8 @@ export const refreshWhatsAppQrStatus = async (
   const isConnected = nextQrStatus === "connected";
   const isTerminalWithoutQr =
     nextQrStatus === "connected" || nextQrStatus === "expired";
+  const disconnectedByProvider =
+    organization.qrConnected && !isConnected && nextQrStatus !== "pending";
 
   const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode:
@@ -681,7 +709,9 @@ export const refreshWhatsAppQrStatus = async (
       instanceName,
     evolutionInstanceId:
       qrResponse.evolutionInstanceId ?? organization.evolutionInstanceId,
-    qrLastError: qrResponse.errorMessage ?? null,
+    qrLastError: disconnectedByProvider
+      ? "WhatsApp was disconnected from the phone or Linked Devices. Start a fresh QR to reconnect."
+      : qrResponse.errorMessage ?? null,
     apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization.apiPhoneNumber,
     apiMessagingLimit:
       qrResponse.apiMessagingLimit ?? organization.apiMessagingLimit,

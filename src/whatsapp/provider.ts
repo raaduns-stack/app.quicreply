@@ -41,6 +41,11 @@ export type WhatsAppSendMessageResult = {
   rawResponse: unknown;
 };
 
+export type WhatsAppInstanceCleanupResult = {
+  deleted: string[];
+  failed: Array<{ instanceName: string; message: string }>;
+};
+
 type EvolutionProviderInput = {
   instanceName: string;
 };
@@ -279,6 +284,13 @@ function getEvolutionInstanceRecord(
   }
 
   return null;
+}
+
+function getEvolutionInstanceName(value: unknown) {
+  const record = asRecord(value);
+  const instance = asRecord(record?.instance) ?? record;
+
+  return findFirstStringByKeys(instance, ["instanceName", "name"]);
 }
 
 function normalizeEvolutionOwner(value: string | null) {
@@ -689,6 +701,10 @@ async function fetchEvolutionInstance(input: EvolutionProviderInput) {
   );
 }
 
+async function fetchEvolutionInstances() {
+  return evolutionRequest<unknown>("/instance/fetchInstances");
+}
+
 async function logoutEvolutionInstance(input: EvolutionProviderInput) {
   return evolutionRequest<unknown>(
     `/instance/logout/${encodeURIComponent(input.instanceName)}`,
@@ -756,6 +772,75 @@ export async function startWhatsAppQrSession(
         ? "Evolution instance is preparing the QR code. Keep this page open; we will refresh automatically."
         : null,
   };
+}
+
+export async function cleanupStaleEvolutionInstancesForOrganization(input: {
+  organizationId: string;
+  keepInstanceName?: string | null;
+}): Promise<WhatsAppInstanceCleanupResult> {
+  if (getWhatsAppProvider() !== "evolution") {
+    return { deleted: [], failed: [] };
+  }
+
+  const prefix = `quicreply-${input.organizationId}`.toLowerCase();
+  const keepInstanceName = input.keepInstanceName?.toLowerCase() ?? null;
+
+  let instancesResponse: unknown;
+  try {
+    instancesResponse = await fetchEvolutionInstances();
+  } catch (error) {
+    console.warn(
+      "Could not fetch Evolution instances before starting a fresh WhatsApp session.",
+      error,
+    );
+    return {
+      deleted: [],
+      failed: [
+        {
+          instanceName: prefix,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not fetch Evolution instances.",
+        },
+      ],
+    };
+  }
+
+  const candidateNames = new Set<string>();
+  for (const item of unwrapEvolutionRecords(instancesResponse)) {
+    const instanceName = getEvolutionInstanceName(item);
+    const normalizedName = instanceName?.toLowerCase();
+
+    if (
+      instanceName &&
+      normalizedName?.startsWith(prefix) &&
+      normalizedName !== keepInstanceName
+    ) {
+      candidateNames.add(instanceName);
+    }
+  }
+
+  const result: WhatsAppInstanceCleanupResult = { deleted: [], failed: [] };
+
+  for (const instanceName of candidateNames) {
+    try {
+      await disconnectWhatsAppQrSession({ instanceName });
+      result.deleted.push(instanceName);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not delete stale Evolution instance.";
+      result.failed.push({ instanceName, message });
+      console.warn(
+        `Could not delete stale Evolution instance ${instanceName}.`,
+        error,
+      );
+    }
+  }
+
+  return result;
 }
 
 export async function refreshWhatsAppQrSessionStatus(
