@@ -576,8 +576,12 @@ export const startWhatsAppQrHandshake = async (
     rawArgs,
   );
   const organization = await ensureOrganizationForUser(userId);
+  const canReuseStoredInstance =
+    normalizeQrStatus(organization.qrStatus) === "connected" ||
+    normalizeQrStatus(organization.qrStatus) === "pending";
   let instanceName =
-    organization.evolutionInstanceName ??
+    organization.qrSessionId ??
+    (canReuseStoredInstance ? organization.evolutionInstanceName : null) ??
     buildEvolutionInstanceName(organization.id);
 
   let qrResponse;
@@ -807,7 +811,19 @@ export const disconnectWhatsAppQr = async (
     qrLastSeen: null,
     qrStatusCheckedAt: new Date(),
     qrDeviceInfo: null,
-    qrLastError: disconnectErrorMessage,
+    evolutionInstanceName: null,
+    evolutionInstanceId: null,
+    qrLastError: null,
+    settings: disconnectErrorMessage
+      ? {
+          ...normalizeSettings(organization.settings),
+          whatsappQrProviderWarning: {
+            message: disconnectErrorMessage,
+            instanceName,
+            occurredAt: new Date().toISOString(),
+          },
+        }
+      : organization.settings,
   });
 
   return toWorkspaceState(updatedOrganization);
