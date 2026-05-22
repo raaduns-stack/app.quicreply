@@ -117,6 +117,98 @@ function findFirstStringByPaths(
   return null;
 }
 
+function getNumberAtPath(
+  payload: Record<string, unknown>,
+  path: string[],
+): number | null {
+  const value = getNestedValue(payload, path);
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const low = record.low;
+
+    if (typeof low === "number" && Number.isFinite(low)) {
+      return low;
+    }
+
+    if (typeof low === "string" && low.trim()) {
+      const parsedLow = Number(low);
+      return Number.isFinite(parsedLow) ? parsedLow : null;
+    }
+  }
+
+  return null;
+}
+
+function findFirstNumberByPaths(
+  payload: Record<string, unknown>,
+  paths: string[][],
+): number | null {
+  for (const path of paths) {
+    const value = getNumberAtPath(payload, path);
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function normalizeUnixTimestamp(value: number | null) {
+  if (!value) {
+    return null;
+  }
+
+  const timestampMs = value > 1_000_000_000_000 ? value : value * 1000;
+  const date = new Date(timestampMs);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function extractProviderMessageDate(payload: Record<string, unknown>) {
+  return normalizeUnixTimestamp(
+    findFirstNumberByPaths(payload, [
+      ["data", "messageTimestamp"],
+      ["messageTimestamp"],
+      ["data", "message", "messageTimestamp"],
+      ["message", "messageTimestamp"],
+      ["data", "key", "messageTimestamp"],
+      ["key", "messageTimestamp"],
+      ["data", "timestamp"],
+      ["timestamp"],
+    ]),
+  );
+}
+
+function shouldCountInboundAsUnread(
+  direction: "inbound" | "outbound",
+  date: Date | null,
+) {
+  if (direction !== "inbound") {
+    return false;
+  }
+
+  if (!date) {
+    return true;
+  }
+
+  const now = Date.now();
+  const eventTime = date.getTime();
+  const sixHoursMs = 6 * 60 * 60 * 1000;
+  const fiveMinutesMs = 5 * 60 * 1000;
+
+  return eventTime >= now - sixHoursMs && eventTime <= now + fiveMinutesMs;
+}
+
 function extractInstanceName(payload: unknown): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
@@ -306,6 +398,7 @@ async function createWhatsAppMessageLog({
   source,
   providerEvent,
   providerMessageId,
+  occurredAt,
   rawPayload,
 }: {
   organizationId: string;
@@ -320,6 +413,7 @@ async function createWhatsAppMessageLog({
   source: string;
   providerEvent?: string | null;
   providerMessageId?: string | null;
+  occurredAt?: Date | null;
   rawPayload?: unknown;
 }) {
   if (providerMessageId) {
@@ -339,6 +433,7 @@ async function createWhatsAppMessageLog({
   await prisma.whatsAppMessageLog.create({
     data: {
       organizationId,
+      createdAt: occurredAt ?? undefined,
       instanceName,
       direction,
       from,
@@ -387,6 +482,8 @@ async function upsertContactFromWhatsApp({
   to,
   pushName,
   text,
+  occurredAt,
+  shouldIncrementUnread,
 }: {
   organizationId: string;
   direction: "inbound" | "outbound";
@@ -394,6 +491,8 @@ async function upsertContactFromWhatsApp({
   to?: string | null;
   pushName?: string | null;
   text?: string | null;
+  occurredAt?: Date | null;
+  shouldIncrementUnread: boolean;
 }) {
   const phone = normalizeWhatsAppPhone(direction === "inbound" ? from : to);
 
@@ -401,7 +500,7 @@ async function upsertContactFromWhatsApp({
     return;
   }
 
-  const now = new Date();
+  const now = occurredAt ?? new Date();
   const safePushName = getSafeContactPushName(pushName);
   const inboundPushName = direction === "inbound" ? safePushName : null;
   const fallbackName = inboundPushName || phone;
@@ -420,7 +519,7 @@ async function upsertContactFromWhatsApp({
       lastMessageAt: now,
       lastMessageDirection: direction,
       resolvedAt: direction === "inbound" ? null : undefined,
-      unreadCount: direction === "inbound" ? { increment: 1 } : undefined,
+      unreadCount: shouldIncrementUnread ? { increment: 1 } : undefined,
     },
     create: {
       organizationId,
@@ -434,7 +533,7 @@ async function upsertContactFromWhatsApp({
       lastMessageAt: now,
       lastMessageDirection: direction,
       isAiActive: true,
-      unreadCount: direction === "inbound" ? 1 : 0,
+      unreadCount: shouldIncrementUnread ? 1 : 0,
     },
   });
 }
@@ -618,6 +717,11 @@ export async function evolutionWhatsAppWebhook(
   const messageType = extractMessageType(payloadRecord);
   const messageRecord = extractMessageRecord(payloadRecord);
   const messageText = extractInboundMessageText(payloadRecord, messageType);
+  const occurredAt = extractProviderMessageDate(payloadRecord);
+  const shouldIncrementUnread = shouldCountInboundAsUnread(
+    direction,
+    occurredAt,
+  );
 
   const normalizedEvent = providerEvent.toLowerCase();
   const canonicalEvent = normalizedEvent.replace(/_/g, ".");
@@ -643,6 +747,15 @@ export async function evolutionWhatsAppWebhook(
     return;
   }
 
+  if (direction === "inbound" && occurredAt && !shouldIncrementUnread) {
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "stale_message_ignored",
+    });
+    return;
+  }
+
   await createWhatsAppMessageLog({
     organizationId: organization.id,
     instanceName,
@@ -658,6 +771,7 @@ export async function evolutionWhatsAppWebhook(
     source: "evolution",
     providerEvent,
     providerMessageId: extractInboundMessageId(payloadRecord),
+    occurredAt,
     rawPayload: payload,
   });
 
@@ -668,6 +782,8 @@ export async function evolutionWhatsAppWebhook(
     to: direction === "outbound" ? contactJid : null,
     pushName,
     text: messageText,
+    occurredAt,
+    shouldIncrementUnread,
   });
 
   const orgWebhook = getWebhookSettings(organization.settings);
