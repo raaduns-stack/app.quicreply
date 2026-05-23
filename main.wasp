@@ -230,6 +230,12 @@ page PipelinePage {
   component: import PipelinePage from "@src/user/PipelinePage"
 }
 
+route DashboardPipelineRoute { path: "/dashboard/pipeline", to: DashboardPipelinePage }
+page DashboardPipelinePage {
+  authRequired: true,
+  component: import PipelinePage from "@src/user/PipelinePage"
+}
+
 route AccountRoute { path: "/account", to: AccountPage }
 page AccountPage {
   authRequired: true,
@@ -401,6 +407,42 @@ action resolveInboxThread {
 action sendInboxMessage {
   fn: import { sendInboxMessage } from "@src/inbox/operations",
   entities: [User, Organization, Contact, WhatsAppMessageLog],
+  auth: true
+}
+
+query getPipelineState {
+  fn: import { getPipelineState } from "@src/pipeline/operations",
+  entities: [User, Organization, Contact, PipelineTemplate, PipelineStage, Deal],
+  auth: true
+}
+
+action setActivePipelineTemplate {
+  fn: import { setActivePipelineTemplate } from "@src/pipeline/operations",
+  entities: [User, Organization, Contact, PipelineTemplate, PipelineStage, Deal],
+  auth: true
+}
+
+action createDeal {
+  fn: import { createDeal } from "@src/pipeline/operations",
+  entities: [User, Organization, Contact, PipelineTemplate, PipelineStage, Deal],
+  auth: true
+}
+
+action updateDeal {
+  fn: import { updateDeal } from "@src/pipeline/operations",
+  entities: [User, Organization, Contact, PipelineTemplate, PipelineStage, Deal],
+  auth: true
+}
+
+action updateDealStage {
+  fn: import { updateDealStage } from "@src/pipeline/operations",
+  entities: [User, Organization, Contact, PipelineTemplate, PipelineStage, Deal],
+  auth: true
+}
+
+action deleteDeal {
+  fn: import { deleteDeal } from "@src/pipeline/operations",
+  entities: [User, Organization, Contact, PipelineTemplate, PipelineStage, Deal],
   auth: true
 }
 

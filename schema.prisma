@@ -68,6 +68,8 @@ model Organization {
   whatsappMessageLogs   WhatsAppMessageLog[]
   contacts              Contact[]
   campaigns             Campaign[]
+  pipelineTemplates     PipelineTemplate[]
+  deals                 Deal[]
 }
 
 model Contact {
@@ -95,11 +97,85 @@ model Contact {
   lastReadAt           DateTime?
   resolvedAt           DateTime?
   campaignRecipients   CampaignRecipient[]
+  deals                Deal[]
 
   @@unique([organizationId, phone])
   @@index([organizationId, updatedAt])
   @@index([organizationId, status])
   @@index([organizationId, source])
+}
+
+model PipelineTemplate {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  key      String
+  name     String
+  isActive Boolean @default(false)
+
+  stages PipelineStage[]
+  deals  Deal[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, isActive])
+}
+
+model PipelineStage {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  template   PipelineTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId String
+
+  slug      String
+  name      String
+  color     String
+  sortOrder Int
+
+  deals Deal[]
+
+  @@unique([templateId, slug])
+  @@index([templateId, sortOrder])
+}
+
+model Deal {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId String?
+
+  template   PipelineTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId String
+
+  stage   PipelineStage @relation(fields: [stageId], references: [id])
+  stageId String
+
+  customerName       String
+  phone              String?
+  value              Decimal  @default(0) @db.Decimal(12, 2)
+  currency           String   @default("NGN")
+  status             String   @default("open")
+  priorityLevel      String   @default("normal")
+  lastInteractionAt  DateTime?
+  notes              String?
+  lastStageChangedAt DateTime @default(now())
+  wonAt              DateTime?
+  lostAt             DateTime?
+
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, status])
+  @@index([templateId, stageId])
+  @@index([contactId])
 }
 
 model Campaign {

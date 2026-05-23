@@ -6,6 +6,15 @@ type WebhookSettings = {
   enabled: boolean;
 };
 
+type N8nPlanTier = "free" | "paid";
+
+type N8nPlanContext = {
+  id: string;
+  status: string | null;
+  tier: N8nPlanTier;
+  routingReason: string;
+};
+
 function normalizeSettings(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -31,6 +40,15 @@ function getWebhookSettings(settings: unknown): WebhookSettings {
     inboundUrl,
     enabled: record.enabled === true,
   };
+}
+
+function getStringSetting(
+  settings: Record<string, unknown>,
+  key: string,
+  fallback = "",
+) {
+  const value = settings[key];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
 function getHeaderValue(req: any, headerName: string) {
@@ -239,6 +257,13 @@ async function findOrganizationByInstance(instanceName: string) {
     },
     select: {
       id: true,
+      name: true,
+      phoneNumber: true,
+      industry: true,
+      country: true,
+      flow: true,
+      whatsappMode: true,
+      apiStatus: true,
       settings: true,
       isAiActive: true,
       evolutionInstanceName: true,
@@ -246,6 +271,15 @@ async function findOrganizationByInstance(instanceName: string) {
       qrSessionId: true,
       qrConnected: true,
       qrStatus: true,
+      businessDescription: true,
+      productsServices: true,
+      firstAiMessage: true,
+      user: {
+        select: {
+          subscriptionPlan: true,
+          subscriptionStatus: true,
+        },
+      },
     },
   });
 }
@@ -554,6 +588,154 @@ function getSafeContactPushName(value?: string | null) {
   return name;
 }
 
+type WebhookOrganization = NonNullable<
+  Awaited<ReturnType<typeof findOrganizationByInstance>>
+>;
+type WebhookContact = NonNullable<
+  Awaited<ReturnType<typeof upsertContactFromWhatsApp>>
+>;
+
+function getN8nPlanContext(organization: WebhookOrganization): N8nPlanContext {
+  const planId = organization.user?.subscriptionPlan?.trim() || "starter";
+  const subscriptionStatus = organization.user?.subscriptionStatus ?? null;
+  const normalizedPlan = planId.toLowerCase();
+  const isActiveSubscription =
+    subscriptionStatus === "active" ||
+    subscriptionStatus === "cancel_at_period_end";
+  const explicitlyFreePlans = new Set(["starter", "free", "hobby", "credits10"]);
+  const tier: N8nPlanTier =
+    isActiveSubscription && !explicitlyFreePlans.has(normalizedPlan)
+      ? "paid"
+      : "free";
+
+  return {
+    id: planId,
+    status: subscriptionStatus,
+    tier,
+    routingReason:
+      tier === "paid"
+        ? "active_paid_subscription"
+        : isActiveSubscription
+          ? "free_or_starter_plan"
+          : "no_active_subscription",
+  };
+}
+
+function getCallbackBaseUrl() {
+  return env.WHATSAPP_WEBHOOK_BASE_URL?.replace(/\/+$/, "") ?? "";
+}
+
+function buildN8nInboundPayload({
+  organization,
+  contact,
+  instanceName,
+  direction,
+  contactJid,
+  pushName,
+  messageType,
+  messageText,
+  providerEvent,
+  providerMessageId,
+  occurredAt,
+  rawPayload,
+}: {
+  organization: WebhookOrganization;
+  contact: WebhookContact;
+  instanceName: string;
+  direction: "inbound" | "outbound";
+  contactJid?: string | null;
+  pushName?: string | null;
+  messageType?: string | null;
+  messageText: string;
+  providerEvent: string;
+  providerMessageId?: string | null;
+  occurredAt?: Date | null;
+  rawPayload: unknown;
+}) {
+  const settings = normalizeSettings(organization.settings);
+  const plan = getN8nPlanContext(organization);
+  const callbackBaseUrl = getCallbackBaseUrl();
+  const replyPath = "/webhooks/n8n/whatsapp/reply";
+  const workflow =
+    plan.tier === "paid" ? "paid-customer-ai-flow" : "free-customer-ai-flow";
+
+  return {
+    event: "whatsapp.inbound_message",
+    version: "2026-05-22",
+    source: "quicreply",
+    tenantId: organization.id,
+    organizationId: organization.id,
+    contactId: contact.id,
+    phone: contact.phone,
+    receivedAt: new Date().toISOString(),
+    message: {
+      id: providerMessageId,
+      text: messageText,
+      type: messageType ?? "conversation",
+      direction,
+      occurredAt: occurredAt?.toISOString() ?? null,
+      providerEvent,
+    },
+    contact: {
+      id: contact.id,
+      name: contact.name,
+      phone: contact.phone,
+      email: contact.email,
+      source: contact.source,
+      status: contact.status,
+      tags: contact.tags,
+      assignedTo: contact.assignedTo,
+      isAiActive: contact.isAiActive,
+      lastMessage: contact.lastMessage,
+      lastMessageAt: contact.lastMessageAt?.toISOString() ?? null,
+      unreadCount: contact.unreadCount,
+    },
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      phoneNumber: organization.phoneNumber,
+      industry: organization.industry,
+      country: organization.country,
+      flow: organization.flow,
+      isAiActive: organization.isAiActive,
+      whatsappMode: organization.whatsappMode,
+      apiStatus: organization.apiStatus,
+      plan: {
+        id: plan.id,
+        status: plan.status,
+        tier: plan.tier,
+      },
+    },
+    businessContext: {
+      businessDescription: organization.businessDescription ?? "",
+      productsServices: organization.productsServices ?? "",
+      firstAiMessage: organization.firstAiMessage ?? "",
+      responseStyle: getStringSetting(settings, "responseStyle", "professional"),
+      aiLanguage: getStringSetting(settings, "aiLanguage", "English"),
+    },
+    routing: {
+      tier: plan.tier,
+      workflow,
+      reason: plan.routingReason,
+    },
+    whatsapp: {
+      provider: "evolution",
+      mode: organization.whatsappMode ?? "qr",
+      instanceName,
+      instanceId: organization.evolutionInstanceId,
+      contactJid,
+      pushName,
+    },
+    callback: {
+      replyUrl: callbackBaseUrl ? `${callbackBaseUrl}${replyPath}` : replyPath,
+      secretHeader: "x-n8n-webhook-secret",
+    },
+    debug: {
+      rawProviderPayload: rawPayload,
+    },
+  };
+}
+
 async function findOrganizationForReply(payload: Record<string, unknown>) {
   const organizationId =
     typeof payload.organizationId === "string" && payload.organizationId.trim()
@@ -614,27 +796,24 @@ function getReplyString(
 
 async function forwardToN8n({
   inboundUrl,
-  organizationId,
-  instanceName,
   payload,
 }: {
   inboundUrl: string;
-  organizationId: string;
-  instanceName: string;
   payload: unknown;
 }) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-quicreply-event": "whatsapp.inbound_message",
+  };
+
+  if (env.N8N_WHATSAPP_ROUTER_SECRET) {
+    headers["x-quicreply-webhook-secret"] = env.N8N_WHATSAPP_ROUTER_SECRET;
+  }
+
   const response = await fetch(inboundUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      source: "evolution",
-      organizationId,
-      instanceName,
-      receivedAt: new Date().toISOString(),
-      payload,
-    }),
+    headers,
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -788,9 +967,10 @@ export async function evolutionWhatsAppWebhook(
 
   const orgWebhook = getWebhookSettings(organization.settings);
   const inboundUrl =
-    orgWebhook.enabled && orgWebhook.inboundUrl
+    env.N8N_WHATSAPP_ROUTER_WEBHOOK_URL ??
+    (orgWebhook.enabled && orgWebhook.inboundUrl
       ? orgWebhook.inboundUrl
-      : env.N8N_WHATSAPP_INBOUND_WEBHOOK_URL;
+      : env.N8N_WHATSAPP_INBOUND_WEBHOOK_URL);
 
   if (direction !== "inbound") {
     res.status(202).json({
@@ -828,12 +1008,36 @@ export async function evolutionWhatsAppWebhook(
     return;
   }
 
-  await forwardToN8n({
-    inboundUrl,
-    organizationId: organization.id,
+  const providerMessageId = extractInboundMessageId(payloadRecord);
+  const n8nPayload = buildN8nInboundPayload({
+    organization,
+    contact,
     instanceName,
-    payload,
+    direction,
+    contactJid,
+    pushName,
+    messageType,
+    messageText,
+    providerEvent,
+    providerMessageId,
+    occurredAt,
+    rawPayload: payload,
   });
+
+  try {
+    await forwardToN8n({
+      inboundUrl,
+      payload: n8nPayload,
+    });
+  } catch (error) {
+    console.error("Could not forward WhatsApp event to n8n", error);
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "n8n_forward_failed",
+    });
+    return;
+  }
 
   res.json({ ok: true, forwarded: true });
 }
