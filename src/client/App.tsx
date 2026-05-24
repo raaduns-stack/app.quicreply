@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router";
 import { Toaster } from "../client/components/ui/toaster";
 import "./Main.css";
-import CookieConsentBanner from "./components/cookie-consent/Banner";
 import OAuthErrorPage from "../auth/OAuthErrorPage";
 
 /**
@@ -31,7 +30,6 @@ export default function App() {
         {oauthError ? <OAuthErrorPage error={oauthError} /> : <Outlet />}
       </div>
       <Toaster position="bottom-right" />
-      <CookieConsentBanner />
     </>
   );
 }

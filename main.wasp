@@ -1,4 +1,4 @@
-app OpenSaaS {
+app QuicReply {
   wasp: {
     version: "^0.22.0"
   },
@@ -8,26 +8,20 @@ app OpenSaaS {
   head: [
     "<link rel='icon' href='/favicon.png' />",
 
-    "<meta name='description' content='Your apps main description and features.' />",
-    "<meta name='author' content='Your (App) Name' />",
-    "<meta name='keywords' content='saas, solution, product, app, service' />",
+    "<meta name='description' content='QuicReply helps teams manage WhatsApp conversations, AI-assisted replies, campaigns, and pipeline workflows.' />",
+    "<meta name='author' content='QuicReply' />",
+    "<meta name='keywords' content='whatsapp, crm, campaigns, ai assistant, sales automation' />",
 
     "<meta property='og:type' content='website' />",
-    "<meta property='og:title' content='Your Open SaaS App' />",
-    "<meta property='og:site_name' content='Your Open SaaS App' />",
-    "<meta property='og:url' content='https://your-saas-app.com' />",
-    "<meta property='og:description' content='Your apps main description and features.' />",
-    "<meta property='og:image' content='https://your-saas-app.com/public-banner.webp' />",
-    "<meta name='twitter:image' content='https://your-saas-app.com/public-banner.webp' />",
+    "<meta property='og:title' content='QuicReply' />",
+    "<meta property='og:site_name' content='QuicReply' />",
+    "<meta property='og:url' content='https://app.quicreply.io' />",
+    "<meta property='og:description' content='QuicReply helps teams manage WhatsApp conversations, AI-assisted replies, campaigns, and pipeline workflows.' />",
+    "<meta property='og:image' content='https://app.quicreply.io/public-banner.webp' />",
+    "<meta name='twitter:image' content='https://app.quicreply.io/public-banner.webp' />",
     "<meta name='twitter:image:width' content='800' />",
     "<meta name='twitter:image:height' content='400' />",
     "<meta name='twitter:card' content='summary_large_image' />",
-    // TODO: You can put your Plausible analytics scripts below (https://docs.opensaas.sh/guides/analytics/):
-    // NOTE: Plausible does not use Cookies, so you can simply add the scripts here.
-    // Google, on the other hand, does, so you must instead add the script dynamically
-    // via the Cookie Consent component after the user clicks the "Accept" cookies button.
-    // "<script async data-domain='<your-site-id>' src='https://plausible.io/js/script.js'></script>",  // for production
-    // "<script async data-domain='<your-site-id>' src='https://plausible.io/js/script.local.js'></script>",  // for development
   ],
 
   // 🔐 Auth out of the box! https://wasp.sh/docs/auth/overview
@@ -88,9 +82,7 @@ app OpenSaaS {
   },
 
   emailSender: {
-    // NOTE: "Dummy" provider is just for local development purposes.
-    //   Make sure to check the server logs for the email confirmation url (it will not be sent to an address)!
-    //   Once you are ready for production, switch to e.g. "SendGrid" or "Mailgun" providers. Check out https://docs.opensaas.sh/guides/email-sending/ .
+    // SMTP is the configured mail provider for this project.
     provider: SMTP,
     defaultFrom: {
       name: "QuicReply Notifications",
@@ -189,7 +181,6 @@ page AiSettingsPage {
 
 route AiSettingsRoute { path: "/ai/settings", to: AiSettingsPage }
 
-route DashboardWhatsAppRoute { path: "/dashboard/whatsapp", to: DashboardWhatsAppPage }
 page DashboardWhatsAppPage {
   authRequired: true,
   component: import WhatsAppPage from "@src/user/WhatsAppPage"
@@ -201,7 +192,6 @@ page WhatsAppPage {
   component: import WhatsAppPage from "@src/user/WhatsAppPage"
 }
 
-route DashboardApiSetupRoute { path: "/dashboard/api-setup", to: DashboardWhatsAppSetupPage }
 page DashboardWhatsAppSetupPage {
   authRequired: true,
   component: import WhatsAppSetupPage from "@src/whatsapp/WhatsAppSetupPage"
@@ -261,7 +251,6 @@ page PipelinePage {
   component: import PipelinePage from "@src/user/PipelinePage"
 }
 
-route DashboardPipelineRoute { path: "/dashboard/pipeline", to: DashboardPipelinePage }
 page DashboardPipelinePage {
   authRequired: true,
   component: import PipelinePage from "@src/user/PipelinePage"
@@ -299,6 +288,12 @@ query getWorkspaceSettings {
 
 action updateWorkspaceSettings {
   fn: import { updateWorkspaceSettings } from "@src/user/settingsOperations",
+  entities: [User, Organization],
+  auth: true
+}
+
+action runAiSandboxTest {
+  fn: import { runAiSandboxTest } from "@src/user/aiTestOperations",
   entities: [User, Organization],
   auth: true
 }

@@ -1,10 +1,5 @@
 import { type DailyStats } from "wasp/entities";
 import { type DailyStatsJob } from "wasp/server/jobs";
-import {
-  getDailyPageViews,
-  getSources,
-} from "./providers/plausibleAnalyticsUtils";
-// import { getDailyPageViews, getSources } from './providers/googleAnalyticsUtils';
 import { paymentProcessor } from "../payment/paymentProcessor";
 import { SubscriptionStatus } from "../payment/plans";
 
@@ -50,8 +45,8 @@ export const calculateDailyStats: DailyStatsJob<never, void> = async (
     }
 
     const totalRevenue = await paymentProcessor.fetchTotalRevenue();
-
-    const { totalViews, prevDayViewsChangePercent } = await getDailyPageViews();
+    const totalViews = 0;
+    const prevDayViewsChangePercent = "0";
 
     let dailyStats = await context.entities.DailyStats.findUnique({
       where: {
@@ -90,13 +85,9 @@ export const calculateDailyStats: DailyStatsJob<never, void> = async (
         },
       });
     }
-    const sources = await getSources();
+    const sources: Array<{ source: string; visitors: number }> = [];
 
     for (const source of sources) {
-      let visitors = source.visitors;
-      if (typeof source.visitors !== "number") {
-        visitors = parseInt(source.visitors);
-      }
       await context.entities.PageViewSource.upsert({
         where: {
           date_name: {
@@ -107,11 +98,11 @@ export const calculateDailyStats: DailyStatsJob<never, void> = async (
         create: {
           date: nowUTC,
           name: source.source,
-          visitors,
+          visitors: source.visitors,
           dailyStatsId: dailyStats.id,
         },
         update: {
-          visitors,
+          visitors: source.visitors,
         },
       });
     }

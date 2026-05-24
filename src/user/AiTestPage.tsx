@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { type AuthUser } from "wasp/auth";
-import { getWorkspaceSettings, useQuery } from "wasp/client/operations";
+import { getWorkspaceSettings, runAiSandboxTest, useAction, useQuery } from "wasp/client/operations";
 import { Bot, Loader2, RotateCcw, SendHorizontal, Sparkles } from "lucide-react";
 import UserLayout from "./layout/UserLayout";
 import {
@@ -13,6 +13,7 @@ import {
 } from "./ai/shared";
 import { Button } from "../client/components/ui/button";
 import { Textarea } from "../client/components/ui/textarea";
+import { toast } from "../client/hooks/use-toast";
 import { cn } from "../client/utils";
 
 type Message = {
@@ -21,30 +22,12 @@ type Message = {
   text: string;
 };
 
-function buildAssistantReply(input: string, settings?: WorkspaceSettings) {
-  const normalized = input.toLowerCase();
-  const intro =
-    settings?.organization.firstAiMessage.trim() ||
-    "Hi, I'm Jennifer. I can help you with product questions, pricing, and next steps.";
-  const products =
-    settings?.organization.productsServices.trim() ||
-    "We can share product details, pricing, delivery, and recommendation guidance.";
-  const tone = settings?.preferences.responseStyle ?? "professional";
-
-  if (normalized.includes("price")) {
-    return `${intro} Based on the current setup, pricing guidance should come from this knowledge source: ${products}`;
-  }
-
-  if (normalized.includes("deliver") || normalized.includes("shipping")) {
-    return `${intro} Delivery policy is not yet structured as a dedicated knowledge document, so Jennifer would currently answer from saved products/services context: ${products}`;
-  }
-
-  if (normalized.includes("human") || normalized.includes("agent")) {
-    return `Under the current ${tone} tone setting, Jennifer should acknowledge the request and hand over to a human teammate when needed.`;
-  }
-
-  return `${intro} Jennifer would answer this using your current ${tone} tone and the workspace knowledge already saved.`;
-}
+type AiSandboxResult = {
+  message: string;
+  confidence?: number;
+  route?: string;
+  warnings?: string[];
+};
 
 const starterPrompts = [
   "What is the price?",
@@ -55,34 +38,67 @@ const starterPrompts = [
 
 export default function AiTestPage({ user }: { user: AuthUser }) {
   const settingsQuery = useQuery(getWorkspaceSettings);
+  const runSandboxTest = useAction(runAiSandboxTest);
   const settings = settingsQuery.data as WorkspaceSettings | undefined;
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const [lastResult, setLastResult] = useState<AiSandboxResult | null>(null);
 
   const helperText = useMemo(() => {
     if (!settings) {
       return "";
     }
 
-    return `Previewing with ${settings.preferences.responseStyle} tone in ${settings.preferences.aiLanguage}. This is a UI sandbox, not the live Jennifer execution path.`;
+    return `Testing Jennifer runtime with ${settings.preferences.responseStyle} tone in ${settings.preferences.aiLanguage}. This sandbox does not touch live WhatsApp or Inbox traffic.`;
   }, [settings]);
 
-  function sendMessage(text: string) {
+  async function sendMessage(text: string) {
     const value = text.trim();
-    if (!value) {
+    if (!value || isSending) {
       return;
     }
 
-    setMessages((current) => [
-      ...current,
-      { id: `${Date.now()}-user`, role: "user", text: value },
-      {
-        id: `${Date.now()}-assistant`,
-        role: "assistant",
-        text: buildAssistantReply(value, settings),
-      },
-    ]);
+    const nextUserMessage: Message = {
+      id: `${Date.now()}-user`,
+      role: "user",
+      text: value,
+    };
+
+    const history = messages.map((message) => ({
+      role: message.role,
+      text: message.text,
+    }));
+
+    setMessages((current) => [...current, nextUserMessage]);
     setDraft("");
+
+    setIsSending(true);
+    try {
+      const result = (await runSandboxTest({
+        prompt: value,
+        conversationHistory: history,
+      })) as AiSandboxResult;
+
+      setLastResult(result);
+      setMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-assistant`,
+          role: "assistant",
+          text: result.message,
+        },
+      ]);
+    } catch (error: any) {
+      toast({
+        title: "Jennifer runtime test failed",
+        description:
+          error?.message ?? "The sandbox request failed before a runtime response was returned.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSending(false);
+    }
   }
 
   return (
@@ -121,7 +137,7 @@ export default function AiTestPage({ user }: { user: AuthUser }) {
                 </div>
                 <div>
                   <div className="text-base font-semibold text-[#182235] dark:text-white">
-                    UI sandbox only
+                    Sandbox runtime
                   </div>
                   <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
                     {helperText}
@@ -147,7 +163,7 @@ export default function AiTestPage({ user }: { user: AuthUser }) {
                         No test conversation yet
                       </div>
                       <p className="mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">
-                        Use one of the sample prompts or write your own. This page previews UI behavior and configuration, not the live AI runtime.
+                        Use one of the sample prompts or write your own. This page sends sandbox requests through the Jennifer runtime without touching live conversations.
                       </p>
                     </div>
                   ) : (
@@ -179,11 +195,20 @@ export default function AiTestPage({ user }: { user: AuthUser }) {
                     <Textarea
                       className={cn("min-h-[52px] flex-1 resize-none", inputClass)}
                       placeholder="Ask Jennifer a test question..."
+                      disabled={isSending}
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                     />
-                    <Button className="h-auto px-4" onClick={() => sendMessage(draft)}>
-                      <SendHorizontal className="h-4 w-4" />
+                    <Button
+                      className="h-auto px-4"
+                      disabled={!draft.trim() || isSending}
+                      onClick={() => void sendMessage(draft)}
+                    >
+                      {isSending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <SendHorizontal className="h-4 w-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -229,7 +254,33 @@ export default function AiTestPage({ user }: { user: AuthUser }) {
                         {settings?.organization.isAiActive ? "Active" : "Paused"}
                       </dd>
                     </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-slate-500 dark:text-slate-400">Runtime</dt>
+                      <dd className="font-semibold text-[#182235] dark:text-white">
+                        {lastResult?.route ?? "Sandbox"}
+                      </dd>
+                    </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="text-slate-500 dark:text-slate-400">Confidence</dt>
+                      <dd className="font-semibold text-[#182235] dark:text-white">
+                        {typeof lastResult?.confidence === "number"
+                          ? `${Math.round(lastResult.confidence * 100)}%`
+                          : "Not returned"}
+                      </dd>
+                    </div>
                   </dl>
+                  {lastResult?.warnings?.length ? (
+                    <div className="mt-4 rounded-xl border border-[#eadfcb] bg-white/80 p-3 dark:border-white/10 dark:bg-[#0f1728]">
+                      <div className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                        Runtime Warnings
+                      </div>
+                      <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                        {lastResult.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </section>
               </div>
             </div>

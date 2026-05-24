@@ -10,6 +10,8 @@ export const whatsappEnvSchema = z.object({
   N8N_WHATSAPP_ROUTER_SECRET: z.string().optional(),
   N8N_WHATSAPP_INBOUND_WEBHOOK_URL: z.string().optional(),
   N8N_WHATSAPP_REPLY_SECRET: z.string().optional(),
+  N8N_AI_TEST_WEBHOOK_URL: z.string().optional(),
+  N8N_AI_TEST_WEBHOOK_SECRET: z.string().optional(),
   N8N_CAMPAIGN_WEBHOOK_URL: z.string().optional(),
   N8N_CAMPAIGN_WEBHOOK_SECRET: z.string().optional(),
 });

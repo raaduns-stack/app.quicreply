@@ -4,7 +4,6 @@ import { authEnvSchema } from './auth/env'
 import { stripeEnvSchema } from './payment/stripe/env'
 import { lemonSqueezyEnvSchema } from './payment/lemonSqueezy/env'
 import { polarEnvSchema } from './payment/polar/env'
-import { plausibleEnvSchema, googleAnalyticsEnvSchema } from './analytics/env'
 import { whatsappEnvSchema } from './whatsapp/env'
 
 // Wasp merges this schema with its built-in env var validations and uses it
@@ -12,14 +11,12 @@ import { whatsappEnvSchema } from './whatsapp/env'
 // with `import { env } from 'wasp/server'` instead of using `process.env` directly.
 // https://wasp.sh/docs/project/env-vars#custom-env-var-validations
 //
-// If you remove a feature (e.g. an analytics or payment provider), make sure
+// If you remove a feature (e.g. a payment provider), make sure
 // to also remove its env schema import and `.merge(...)` call below.
 export const serverEnvValidationSchema = defineEnvValidationSchema(
   authEnvSchema
     .merge(stripeEnvSchema)
     .merge(lemonSqueezyEnvSchema)
     .merge(polarEnvSchema)
-    .merge(plausibleEnvSchema)
-    .merge(googleAnalyticsEnvSchema)
     .merge(whatsappEnvSchema)
 )

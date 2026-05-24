@@ -629,7 +629,7 @@ function ContactModal({
               </Label>
               <Input
                 className={inputClass}
-                placeholder="e.g. John Doe"
+                placeholder="e.g. Customer Name"
                 value={draft.name}
                 onChange={(e) => set("name", e.target.value)}
               />
@@ -658,7 +658,7 @@ function ContactModal({
               <Input
                 className={inputClass}
                 type="email"
-                placeholder="john@example.com"
+                placeholder="customer@example.com"
                 value={draft.email}
                 onChange={(e) => set("email", e.target.value)}
               />

@@ -341,7 +341,7 @@ const SettingsPage = ({ user }: { user: AuthUser }) => {
                           className={inputClass}
                           value={form.organizationName}
                           onChange={(event) => updateField("organizationName", event.target.value)}
-                          placeholder="e.g. John Doe Command Center"
+                          placeholder="e.g. QuicReply Sales Desk"
                         />
                       </div>
                       <div>

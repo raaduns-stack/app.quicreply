@@ -1,5 +1,5 @@
 {
-  "name": "opensaas",
+  "name": "quicreply",
   "type": "module",
   "scripts": {
     "reset:onboarding": "node --env-file=.env.server scripts/reset-onboarding.mjs"
@@ -38,7 +38,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.525.0",
-    "openai": "^6.27.0",
     "prettier": "3.1.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "qrcode": "^1.5.4",
