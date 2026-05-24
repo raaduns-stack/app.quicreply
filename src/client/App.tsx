@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router";
 import { Toaster } from "../client/components/ui/toaster";
 import "./Main.css";
 import CookieConsentBanner from "./components/cookie-consent/Banner";
+import OAuthErrorPage from "../auth/OAuthErrorPage";
 
 /**
  * use this component to wrap all child components
@@ -10,6 +11,9 @@ import CookieConsentBanner from "./components/cookie-consent/Banner";
  */
 export default function App() {
   const location = useLocation();
+  const query = new URLSearchParams(location.search);
+  const oauthError =
+    location.pathname === "/oauth/callback" ? query.get("error") : null;
 
   useEffect(() => {
     if (location.hash) {
@@ -24,7 +28,7 @@ export default function App() {
   return (
     <>
       <div className="bg-background text-foreground min-h-screen">
-        <Outlet />
+        {oauthError ? <OAuthErrorPage error={oauthError} /> : <Outlet />}
       </div>
       <Toaster position="bottom-right" />
       <CookieConsentBanner />

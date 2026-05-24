@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import { useSearchParams } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import {
   getInboxThreadMessages,
@@ -87,6 +88,7 @@ function getSourceLabel(source: string) {
 
 export default function InboxPage({ user }: { user: AuthUser }) {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [threadFilter, setThreadFilter] = useState<ThreadFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -115,6 +117,18 @@ export default function InboxPage({ user }: { user: AuthUser }) {
       setActiveThreadId(threads[0].id);
     }
   }, [activeThreadId, threads]);
+
+  useEffect(() => {
+    const requestedContactId = searchParams.get("contactId");
+    if (!requestedContactId) {
+      return;
+    }
+
+    const requestedThread = threads.find((thread) => thread.id === requestedContactId);
+    if (requestedThread && activeThreadId !== requestedThread.id) {
+      setActiveThreadId(requestedThread.id);
+    }
+  }, [activeThreadId, searchParams, threads]);
 
   useEffect(() => {
     if (!activeThread?.id || activeThread.unreadCount === 0) {

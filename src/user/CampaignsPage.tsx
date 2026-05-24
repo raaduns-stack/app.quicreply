@@ -2,8 +2,14 @@ import { type AuthUser } from "wasp/auth";
 import { useEffect, useMemo, useState } from "react";
 import {
   createCampaign as createCampaignOperation,
+  getCampaignDetail,
+  estimateCampaignAudience,
+  getContacts,
   getCampaigns,
+  getCampaignPreview,
+  getPipelineState,
   getWhatsAppWorkspaceState,
+  launchCampaign as launchCampaignOperation,
   useQuery,
 } from "wasp/client/operations";
 import UserLayout from "./layout/UserLayout";
@@ -14,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Image as ImageIcon,
   Loader2,
   Megaphone,
   MessageSquareText,
@@ -22,6 +29,7 @@ import {
   Save,
   Search,
   Send,
+  Users,
   X,
 } from "lucide-react";
 import { Button } from "../client/components/ui/button";
@@ -44,6 +52,13 @@ interface Campaign {
   name: string;
   subtitle: string;
   message: string;
+  mediaUrl: string | null;
+  mediaType: string | null;
+  useApprovedTemplate: boolean;
+  templateName: string | null;
+  templateLanguage: string | null;
+  enableJenniferReplies: boolean;
+  campaignContext: string | null;
   audience: number;
   status: "sent" | "sending" | "queued" | "draft" | "failed";
   sent: number;
@@ -53,12 +68,42 @@ interface Campaign {
   createdDate: string;
 }
 
+type ContactOption = {
+  id: string;
+  name: string;
+  phone: string;
+  tags: string[];
+  avi: string;
+  color: string;
+};
+
+type PipelineStage = {
+  id: string;
+  name: string;
+  count: number;
+};
+
+type PipelineState = {
+  stages: PipelineStage[];
+};
+
+type AudienceMode = "allContacts" | "tags" | "pipelineStages" | "manual";
+
 type CampaignDraft = {
   name: string;
   subtitle: string;
   message: string;
   type: "Promotional" | "Transactional" | "Update";
-  audience: "allContacts";
+  audienceMode: AudienceMode;
+  selectedTags: string[];
+  selectedStageIds: string[];
+  selectedContactIds: string[];
+  mediaUrl: string;
+  useApprovedTemplate: boolean;
+  templateName: string;
+  templateLanguage: string;
+  enableJenniferReplies: boolean;
+  campaignContext: string;
   scheduleType: "now" | "later";
   scheduleDate: string;
   scheduleTime: string;
@@ -69,7 +114,16 @@ const EMPTY_CAMPAIGN_DRAFT: CampaignDraft = {
   subtitle: "",
   message: "",
   type: "Promotional",
-  audience: "allContacts",
+  audienceMode: "allContacts",
+  selectedTags: [],
+  selectedStageIds: [],
+  selectedContactIds: [],
+  mediaUrl: "",
+  useApprovedTemplate: false,
+  templateName: "",
+  templateLanguage: "en",
+  enableJenniferReplies: false,
+  campaignContext: "",
   scheduleType: "now",
   scheduleDate: "",
   scheduleTime: "",
@@ -81,7 +135,56 @@ const formFieldClass =
 const formLabelClass =
   "text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400";
 
-function WhatsAppMessagePreview({ message }: { message: string }) {
+function buildAudiencePayload(draft: CampaignDraft) {
+  return {
+    mode: draft.audienceMode,
+    tags: draft.selectedTags,
+    stageIds: draft.selectedStageIds,
+    contactIds: draft.selectedContactIds,
+  };
+}
+
+function getAudienceModeLabel(mode: AudienceMode) {
+  switch (mode) {
+    case "allContacts":
+      return "All Contacts";
+    case "tags":
+      return "By Tag";
+    case "pipelineStages":
+      return "By Pipeline Stage";
+    case "manual":
+      return "Manual Picker";
+  }
+}
+
+function getMediaTypeFromUrl(url: string) {
+  const normalizedUrl = url.trim().toLowerCase();
+  if (!normalizedUrl) {
+    return "";
+  }
+
+  if (
+    normalizedUrl.endsWith(".png") ||
+    normalizedUrl.endsWith(".jpg") ||
+    normalizedUrl.endsWith(".jpeg") ||
+    normalizedUrl.endsWith(".gif") ||
+    normalizedUrl.endsWith(".webp")
+  ) {
+    return "image";
+  }
+
+  return "link";
+}
+
+function WhatsAppMessagePreview({
+  message,
+  sampleContactName,
+  sampleLastAction,
+}: {
+  message: string;
+  sampleContactName?: string | null;
+  sampleLastAction?: string | null;
+}) {
   const displayMessage = message.trim();
 
   return (
@@ -104,6 +207,14 @@ function WhatsAppMessagePreview({ message }: { message: string }) {
         10:42 AM
         <span className="text-blue-500">✓✓</span>
       </div>
+      {(sampleContactName || sampleLastAction) && (
+        <div className="mt-4 rounded-lg bg-white/75 px-3 py-2 text-[11px] text-slate-600">
+          <p className="font-semibold text-slate-700">
+            Sample recipient{sampleContactName ? `: ${sampleContactName}` : ""}
+          </p>
+          {sampleLastAction ? <p className="mt-1">Last action: {sampleLastAction}</p> : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -111,6 +222,8 @@ function WhatsAppMessagePreview({ message }: { message: string }) {
 const CampaignsPage = ({ user }: { user: AuthUser }) => {
   const { toast } = useToast();
   const campaignsQuery = useQuery(getCampaigns);
+  const contactsQuery = useQuery(getContacts, {});
+  const pipelineQuery = useQuery(getPipelineState);
   const workspaceStateQuery = useQuery(getWhatsAppWorkspaceState);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -125,8 +238,10 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
   const [isLaunchOpen, setIsLaunchOpen] = useState(false);
   const [isSavingCampaign, setIsSavingCampaign] = useState(false);
+  const [isLaunchingCampaign, setIsLaunchingCampaign] = useState(false);
   const [draft, setDraft] = useState<CampaignDraft>(EMPTY_CAMPAIGN_DRAFT);
   const [draftError, setDraftError] = useState("");
+  const [manualAudienceSearch, setManualAudienceSearch] = useState("");
   const [dateRange] = useState({
     start: "May 1, 2026",
     end: "May 31, 2026",
@@ -163,6 +278,95 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     selectedCampaignId !== null
       ? filteredCampaigns.find((campaign) => campaign.id === selectedCampaignId)
       : null;
+  const selectedCampaignDetailQuery = useQuery(
+    getCampaignDetail,
+    selectedCampaignId ? { campaignId: selectedCampaignId } : undefined,
+    { enabled: Boolean(selectedCampaignId && isPanelOpen) },
+  );
+  const selectedCampaignDetail = selectedCampaignDetailQuery.data as
+    | (Campaign & {
+        recipientCount: number;
+        queuedRecipients: number;
+        deliveredRecipients: number;
+        failedRecipients: number;
+        latestEventType: string | null;
+        events: Array<{
+          id: string;
+          eventType: string;
+          createdAt: string;
+          summary: string;
+          payloadPreview: string | null;
+        }>;
+      })
+    | undefined;
+  const contacts = (contactsQuery.data as ContactOption[] | undefined) ?? [];
+  const pipeline = pipelineQuery.data as PipelineState | undefined;
+  const pipelineStages = pipeline?.stages ?? [];
+  const availableTags = useMemo(() => {
+    return Array.from(
+      new Set(contacts.flatMap((contact) => contact.tags).map((tag) => tag.trim()).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [contacts]);
+  const filteredManualContacts = useMemo(() => {
+    const query = manualAudienceSearch.trim().toLowerCase();
+    if (!query) {
+      return contacts;
+    }
+
+    return contacts.filter((contact) => {
+      return (
+        contact.name.toLowerCase().includes(query) ||
+        contact.phone.toLowerCase().includes(query) ||
+        contact.tags.some((tag) => tag.toLowerCase().includes(query))
+      );
+    });
+  }, [contacts, manualAudienceSearch]);
+  const audienceEstimateArgs = useMemo(
+    () => ({
+      audience: buildAudiencePayload(draft),
+    }),
+    [
+      draft.audienceMode,
+      draft.selectedContactIds,
+      draft.selectedStageIds,
+      draft.selectedTags,
+    ],
+  );
+  const audienceEstimateQuery = useQuery(
+    estimateCampaignAudience,
+    audienceEstimateArgs,
+    { enabled: isCreateOpen },
+  );
+  const campaignPreviewQuery = useQuery(
+    getCampaignPreview,
+    {
+      message: draft.message,
+      audience: buildAudiencePayload(draft),
+    },
+    { enabled: isCreateOpen },
+  );
+  const audienceEstimate = (audienceEstimateQuery.data as
+    | {
+        count: number;
+        contactIds: string[];
+      }
+    | undefined) ?? {
+    count: 0,
+    contactIds: [],
+  };
+  const campaignPreview = (campaignPreviewQuery.data as
+    | {
+        renderedMessage: string;
+        sampleContactName: string | null;
+        sampleContactPhone: string | null;
+        sampleLastAction: string | null;
+      }
+    | undefined) ?? {
+    renderedMessage: draft.message,
+    sampleContactName: null,
+    sampleContactPhone: null,
+    sampleLastAction: null,
+  };
 
   const openCampaignPanel = (campaignId: string) => {
     setSelectedCampaignId(campaignId);
@@ -224,6 +428,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
   function openCreateDialog() {
     setDraft(EMPTY_CAMPAIGN_DRAFT);
     setDraftError("");
+    setManualAudienceSearch("");
     setIsCreateOpen(true);
   }
 
@@ -234,9 +439,27 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     }));
   }
 
-  async function saveCampaign(options?: { stayOnPage?: boolean }) {
+  async function saveCampaign(options?: {
+    stayOnPage?: boolean;
+    suppressToast?: boolean;
+  }) {
     if (!draft.name.trim() || !draft.message.trim()) {
       setDraftError("Campaign name and message are required.");
+      return null;
+    }
+
+    if (
+      draft.useApprovedTemplate &&
+      (!draft.templateName.trim() || !draft.templateLanguage.trim())
+    ) {
+      setDraftError(
+        "Template name and language are required when approved template mode is enabled.",
+      );
+      return null;
+    }
+
+    if (audienceEstimate.count === 0) {
+      setDraftError("Select at least one valid recipient before saving.");
       return null;
     }
 
@@ -248,16 +471,25 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
         name: draft.name.trim(),
         subtitle: draft.subtitle.trim() || draft.type,
         message: draft.message.trim(),
-        audience: draft.audience,
+        mediaUrl: draft.mediaUrl.trim(),
+        mediaType: getMediaTypeFromUrl(draft.mediaUrl),
+        useApprovedTemplate: draft.useApprovedTemplate,
+        templateName: draft.templateName.trim(),
+        templateLanguage: draft.templateLanguage.trim(),
+        enableJenniferReplies: draft.enableJenniferReplies,
+        campaignContext: draft.campaignContext.trim(),
+        audience: buildAudiencePayload(draft),
       })) as Campaign;
       setCampaigns((current) => [createdCampaign, ...current]);
       if (!options?.stayOnPage) {
         setIsCreateOpen(false);
       }
-      toast({
-        title: "Campaign draft saved",
-        description: "Audience was snapshotted from your current contacts.",
-      });
+      if (!options?.suppressToast) {
+        toast({
+          title: "Campaign draft saved",
+          description: `Audience snapshotted with ${audienceEstimate.count.toLocaleString()} recipients.`,
+        });
+      }
       return createdCampaign;
     } catch (err: any) {
       setDraftError(err?.message || "Could not save campaign.");
@@ -278,8 +510,132 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
       return;
     }
 
+    if (
+      draft.useApprovedTemplate &&
+      (!draft.templateName.trim() || !draft.templateLanguage.trim())
+    ) {
+      setDraftError(
+        "Template name and language are required when approved template mode is enabled.",
+      );
+      return;
+    }
+
+    if (audienceEstimate.count === 0) {
+      setDraftError("Select at least one valid recipient before launching.");
+      return;
+    }
+
     setIsLaunchOpen(true);
   }
+
+  async function queueCampaign() {
+    setIsLaunchingCampaign(true);
+    setDraftError("");
+
+    try {
+      const createdCampaign = await saveCampaign({
+        stayOnPage: true,
+        suppressToast: true,
+      });
+      if (!createdCampaign) {
+        return;
+      }
+
+      const launchResult = (await launchCampaignOperation({
+        campaignId: createdCampaign.id,
+      })) as {
+        campaign: Campaign;
+        handoff: {
+          attempted: boolean;
+          delivered: boolean;
+          reason: string;
+        };
+      };
+      const queuedCampaign = launchResult.campaign;
+
+      setCampaigns((current) => {
+        const existing = current.some((campaign) => campaign.id === queuedCampaign.id);
+        if (!existing) {
+          return [queuedCampaign, ...current];
+        }
+
+        return current.map((campaign) =>
+          campaign.id === queuedCampaign.id ? queuedCampaign : campaign,
+        );
+      });
+
+      setIsLaunchOpen(false);
+      setIsCreateOpen(false);
+      toast({
+        title: launchResult.handoff.delivered
+          ? "Campaign queued and handed to n8n"
+          : "Campaign queued",
+        description: launchResult.handoff.delivered
+          ? "The launch payload was delivered to n8n."
+          : launchResult.handoff.attempted
+            ? "Queueing succeeded, but n8n handoff failed. Review the campaign status."
+            : "The launch payload is stored locally and ready once the n8n campaign webhook is configured.",
+      });
+    } catch (err: any) {
+      setDraftError(err?.message || "Could not queue campaign.");
+    } finally {
+      setIsLaunchingCampaign(false);
+    }
+  }
+
+  function toggleTag(tag: string) {
+    setDraft((current) => ({
+      ...current,
+      audienceMode: "tags",
+      selectedTags: current.selectedTags.includes(tag)
+        ? current.selectedTags.filter((value) => value !== tag)
+        : [...current.selectedTags, tag],
+    }));
+  }
+
+  function toggleStage(stageId: string) {
+    setDraft((current) => ({
+      ...current,
+      audienceMode: "pipelineStages",
+      selectedStageIds: current.selectedStageIds.includes(stageId)
+        ? current.selectedStageIds.filter((value) => value !== stageId)
+        : [...current.selectedStageIds, stageId],
+    }));
+  }
+
+  function toggleManualContact(contactId: string) {
+    setDraft((current) => ({
+      ...current,
+      audienceMode: "manual",
+      selectedContactIds: current.selectedContactIds.includes(contactId)
+        ? current.selectedContactIds.filter((value) => value !== contactId)
+        : [...current.selectedContactIds, contactId],
+    }));
+  }
+
+  const audienceSummary = useMemo(() => {
+    switch (draft.audienceMode) {
+      case "allContacts":
+        return "All current CRM contacts";
+      case "tags":
+        return draft.selectedTags.length > 0
+          ? `${draft.selectedTags.length} tag filter${draft.selectedTags.length === 1 ? "" : "s"} selected`
+          : "No tags selected yet";
+      case "pipelineStages":
+        return draft.selectedStageIds.length > 0
+          ? `${draft.selectedStageIds.length} pipeline stage${draft.selectedStageIds.length === 1 ? "" : "s"} selected`
+          : "No pipeline stages selected yet";
+      case "manual":
+        return draft.selectedContactIds.length > 0
+          ? `${draft.selectedContactIds.length} contacts selected manually`
+          : "No contacts selected yet";
+    }
+  }, [
+    draft.audienceMode,
+    draft.selectedContactIds.length,
+    draft.selectedStageIds.length,
+    draft.selectedTags.length,
+  ]);
 
   if (isCreateOpen) {
     return (
@@ -401,23 +757,19 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                         <option>Update</option>
                       </select>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className={formLabelClass}>
-                        Audience Selection
-                      </Label>
-                      <select
-                        className={cn(formFieldClass, "w-full cursor-pointer")}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            audience: event.target
-                              .value as CampaignDraft["audience"],
-                          }))
-                        }
-                        value={draft.audience}
-                      >
-                        <option value="allContacts">All Contacts</option>
-                      </select>
+                    <div className="rounded-xl border border-[#e8e2d8] bg-[#f7f8fa] p-4 dark:border-white/10 dark:bg-[#0b1324]">
+                      <p className={formLabelClass}>Audience Size</p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Users className="h-4 w-4 text-[#fe901d]" />
+                        <span className="text-2xl font-bold text-[#182235] dark:text-white">
+                          {audienceEstimateQuery.isLoading
+                            ? "..."
+                            : audienceEstimate.count.toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        {audienceSummary}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -427,6 +779,189 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                 <h2 className="mb-5 flex items-center gap-2 font-bold text-[#182235] dark:text-white">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
                     2
+                  </span>
+                  Audience Selection
+                </h2>
+
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    {(
+                      [
+                        "allContacts",
+                        "tags",
+                        "pipelineStages",
+                        "manual",
+                      ] as const
+                    ).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            audienceMode: mode,
+                          }))
+                        }
+                        className={cn(
+                          "rounded-xl border px-4 py-3 text-sm font-semibold transition-colors",
+                          draft.audienceMode === mode
+                            ? "border-[#fe901d] bg-[#fff5ea] text-[#c96a00] dark:border-[#fe901d] dark:bg-[#fe901d]/10 dark:text-[#ffb84d]"
+                            : "border-[#e8e2d8] bg-white text-slate-600 hover:border-[#f3d2a5] hover:bg-[#fffaf3] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-300 dark:hover:bg-white/5",
+                        )}
+                      >
+                        {getAudienceModeLabel(mode)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {draft.audienceMode === "allContacts" && (
+                    <div className="rounded-xl border border-dashed border-[#e8e2d8] bg-[#faf8f4] px-4 py-4 text-sm text-slate-600 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-300">
+                      This campaign will target every contact currently stored in CRM.
+                    </div>
+                  )}
+
+                  {draft.audienceMode === "tags" && (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {availableTags.length > 0 ? (
+                          availableTags.map((tag) => {
+                            const isSelected = draft.selectedTags.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => toggleTag(tag)}
+                                className={cn(
+                                  "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                                  isSelected
+                                    ? "border-[#fe901d] bg-[#fff5ea] text-[#c96a00] dark:border-[#fe901d] dark:bg-[#fe901d]/10 dark:text-[#ffb84d]"
+                                    : "border-[#e8e2d8] bg-white text-slate-600 hover:border-[#f3d2a5] hover:bg-[#fffaf3] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-300 dark:hover:bg-white/5",
+                                )}
+                              >
+                                #{tag}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            No contact tags exist yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {draft.audienceMode === "pipelineStages" && (
+                    <div className="space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {pipelineStages.length > 0 ? (
+                          pipelineStages.map((stage) => {
+                            const isSelected = draft.selectedStageIds.includes(stage.id);
+                            return (
+                              <button
+                                key={stage.id}
+                                type="button"
+                                onClick={() => toggleStage(stage.id)}
+                                className={cn(
+                                  "flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors",
+                                  isSelected
+                                    ? "border-[#fe901d] bg-[#fff5ea] text-[#c96a00] dark:border-[#fe901d] dark:bg-[#fe901d]/10 dark:text-[#ffb84d]"
+                                    : "border-[#e8e2d8] bg-white text-slate-600 hover:border-[#f3d2a5] hover:bg-[#fffaf3] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-300 dark:hover:bg-white/5",
+                                )}
+                              >
+                                <span>{stage.name}</span>
+                                <span className="text-xs opacity-70">
+                                  {stage.count} deals
+                                </span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            No pipeline stages are available yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {draft.audienceMode === "manual" && (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search contacts by name, phone, or tag..."
+                          value={manualAudienceSearch}
+                          onChange={(event) => setManualAudienceSearch(event.target.value)}
+                          className="w-full rounded-lg border border-[#e8e2d8] bg-white py-2.5 pl-10 pr-4 text-sm text-foreground dark:border-white/10 dark:bg-[#0b1324] dark:text-white"
+                        />
+                      </div>
+
+                      <div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-[#e8e2d8] bg-[#faf8f4] p-3 dark:border-white/10 dark:bg-[#0b1324]">
+                        {filteredManualContacts.length > 0 ? (
+                          filteredManualContacts.map((contact) => {
+                            const isSelected = draft.selectedContactIds.includes(contact.id);
+                            return (
+                              <label
+                                key={contact.id}
+                                className={cn(
+                                  "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors",
+                                  isSelected
+                                    ? "border-[#fe901d] bg-[#fff5ea] dark:border-[#fe901d] dark:bg-[#fe901d]/10"
+                                    : "border-transparent bg-white hover:border-[#f3d2a5] dark:bg-[#101827] dark:hover:border-white/10",
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleManualContact(contact.id)}
+                                  className="mt-1 rounded"
+                                />
+                                <div
+                                  className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
+                                  style={{ background: contact.color }}
+                                >
+                                  {contact.avi}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-[#182235] dark:text-white">
+                                    {contact.name}
+                                  </p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    {contact.phone}
+                                  </p>
+                                  {contact.tags.length > 0 && (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      {contact.tags.slice(0, 3).map((tag) => (
+                                        <span
+                                          key={`${contact.id}-${tag}`}
+                                          className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300"
+                                        >
+                                          #{tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })
+                        ) : (
+                          <p className="px-2 py-4 text-sm text-slate-500 dark:text-slate-400">
+                            No contacts match this search.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-[#e8e2d8] bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
+                <h2 className="mb-5 flex items-center gap-2 font-bold text-[#182235] dark:text-white">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                    3
                   </span>
                   Message Content
                 </h2>
@@ -448,7 +983,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                       <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                         Insert variables:
                       </span>
-                      {["{{name}}", "{{business}}", "{{offer}}"].map(
+                      {["{{first_name}}", "{{last_action}}"].map(
                         (variable) => (
                           <button
                             className="cursor-pointer rounded-md border border-[#e8e2d8] bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/15"
@@ -468,11 +1003,179 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
               <section className="rounded-2xl border border-[#e8e2d8] bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#0d1524]">
                 <h2 className="mb-5 flex items-center gap-2 font-bold text-[#182235] dark:text-white">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs text-slate-600 dark:bg-white/10 dark:text-slate-300">
-                    3
+                    4
                   </span>
                   Delivery Settings
                 </h2>
                 <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className={formLabelClass}>Media URL</Label>
+                      <Input
+                        className={formFieldClass}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            mediaUrl: event.target.value,
+                          }))
+                        }
+                        placeholder="https://example.com/promo-image.jpg"
+                        value={draft.mediaUrl}
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Save the asset reference now. Direct upload can sit on top of this later.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className={formLabelClass}>Media Preview</Label>
+                      <div className="flex min-h-28 items-center justify-center rounded-xl border border-dashed border-[#e8e2d8] bg-[#faf8f4] p-3 dark:border-white/10 dark:bg-[#0b1324]">
+                        {draft.mediaUrl.trim() ? (
+                          getMediaTypeFromUrl(draft.mediaUrl) === "image" ? (
+                            <img
+                              alt="Campaign media preview"
+                              className="max-h-28 rounded-lg object-cover"
+                              src={draft.mediaUrl}
+                            />
+                          ) : (
+                            <div className="space-y-2 text-center">
+                              <ImageIcon className="mx-auto h-5 w-5 text-slate-400" />
+                              <p className="break-all text-xs text-slate-500 dark:text-slate-400">
+                                {draft.mediaUrl}
+                              </p>
+                            </div>
+                          )
+                        ) : (
+                          <div className="space-y-2 text-center">
+                            <ImageIcon className="mx-auto h-5 w-5 text-slate-400" />
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              No media attached yet
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[#e8e2d8] bg-[#faf8f4] p-4 dark:border-white/10 dark:bg-[#0b1324]">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-[#182235] dark:text-white">
+                          Use WhatsApp approved template
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Enable this when the campaign should send outside the active customer service window.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-pressed={draft.useApprovedTemplate}
+                        onClick={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            useApprovedTemplate: !current.useApprovedTemplate,
+                          }))
+                        }
+                        className={cn(
+                          "relative h-7 w-12 rounded-full transition-colors",
+                          draft.useApprovedTemplate
+                            ? "bg-[#fe901d]"
+                            : "bg-slate-300 dark:bg-slate-700",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute top-1 h-5 w-5 rounded-full bg-white transition-transform",
+                            draft.useApprovedTemplate ? "left-6" : "left-1",
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {draft.useApprovedTemplate ? (
+                      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label className={formLabelClass}>Template Name</Label>
+                          <Input
+                            className={formFieldClass}
+                            onChange={(event) =>
+                              setDraft((current) => ({
+                                ...current,
+                                templateName: event.target.value,
+                              }))
+                            }
+                            placeholder="e.g., land_promo_v1"
+                            value={draft.templateName}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className={formLabelClass}>Template Language</Label>
+                          <Input
+                            className={formFieldClass}
+                            onChange={(event) =>
+                              setDraft((current) => ({
+                                ...current,
+                                templateLanguage: event.target.value,
+                              }))
+                            }
+                            placeholder="en"
+                            value={draft.templateLanguage}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-[#e8e2d8] bg-[#faf8f4] p-4 dark:border-white/10 dark:bg-[#0b1324]">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-[#182235] dark:text-white">
+                          Enable Jennifer to handle replies
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Reply automation can use this campaign context later when the inbox handover is wired.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-pressed={draft.enableJenniferReplies}
+                        onClick={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            enableJenniferReplies: !current.enableJenniferReplies,
+                          }))
+                        }
+                        className={cn(
+                          "relative h-7 w-12 rounded-full transition-colors",
+                          draft.enableJenniferReplies
+                            ? "bg-[#fe901d]"
+                            : "bg-slate-300 dark:bg-slate-700",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute top-1 h-5 w-5 rounded-full bg-white transition-transform",
+                            draft.enableJenniferReplies ? "left-6" : "left-1",
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-1.5">
+                      <Label className={formLabelClass}>Campaign Context</Label>
+                      <Textarea
+                        className="h-24 resize-y rounded-lg border-[#e8e2d8] bg-white text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            campaignContext: event.target.value,
+                          }))
+                        }
+                        placeholder="e.g., Land promo for buyers around DHA Phase 6. Jennifer should answer pricing, plot sizes, payment plan, and viewing questions."
+                        value={draft.campaignContext}
+                      />
+                    </div>
+                  </div>
+
                   <div className="space-y-1.5">
                     <Label className={formLabelClass}>Send Schedule</Label>
                     <select
@@ -534,7 +1237,11 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                 <h2 className="mb-4 text-center font-bold text-[#182235] dark:text-white">
                   Message Preview
                 </h2>
-                <WhatsAppMessagePreview message={draft.message} />
+                <WhatsAppMessagePreview
+                  message={campaignPreview.renderedMessage}
+                  sampleContactName={campaignPreview.sampleContactName}
+                  sampleLastAction={campaignPreview.sampleLastAction}
+                />
               </div>
             </aside>
           </div>
@@ -545,7 +1252,11 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
             <DialogHeader>
               <DialogTitle>Campaign Preview</DialogTitle>
             </DialogHeader>
-            <WhatsAppMessagePreview message={draft.message} />
+            <WhatsAppMessagePreview
+              message={campaignPreview.renderedMessage}
+              sampleContactName={campaignPreview.sampleContactName}
+              sampleLastAction={campaignPreview.sampleLastAction}
+            />
             <DialogFooter>
               <Button
                 className="w-full cursor-pointer"
@@ -591,8 +1302,8 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
               </div>
               <DialogTitle>Launch Campaign?</DialogTitle>
               <DialogDescription>
-                Sending is not enabled yet. Save this campaign as a draft now,
-                then connect the sending flow next.
+                This will validate the draft, snapshot the launch payload, and
+                move the campaign into the queued state.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:justify-center">
@@ -605,15 +1316,15 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
               </Button>
               <Button
                 className="cursor-pointer"
-                disabled={isSavingCampaign}
-                onClick={async () => {
-                  const created = await saveCampaign();
-                  if (created) {
-                    setIsLaunchOpen(false);
-                  }
-                }}
+                disabled={isSavingCampaign || isLaunchingCampaign}
+                onClick={queueCampaign}
               >
-                Save Draft
+                {isLaunchingCampaign ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Rocket className="mr-2 h-4 w-4" />
+                )}
+                Queue Campaign
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -893,12 +1604,79 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                     </p>
                   </div>
                 </div>
+                {(selectedCampaign.mediaUrl ||
+                  selectedCampaign.useApprovedTemplate ||
+                  selectedCampaign.enableJenniferReplies ||
+                  selectedCampaign.campaignContext) && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      Delivery Setup
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-white/5">
+                        <p className="text-xs text-muted-foreground">Template Mode</p>
+                        <p className="mt-1 text-sm font-semibold text-foreground dark:text-white">
+                          {selectedCampaign.useApprovedTemplate
+                            ? `${selectedCampaign.templateName || "Template"} (${selectedCampaign.templateLanguage || "n/a"})`
+                            : "Freeform session message"}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-white/5">
+                        <p className="text-xs text-muted-foreground">Jennifer Replies</p>
+                        <p className="mt-1 text-sm font-semibold text-foreground dark:text-white">
+                          {selectedCampaign.enableJenniferReplies ? "Enabled" : "Disabled"}
+                        </p>
+                      </div>
+                    </div>
+                    {selectedCampaign.mediaUrl ? (
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-white/5">
+                        <p className="mb-2 text-xs text-muted-foreground">Media</p>
+                        {selectedCampaign.mediaType === "image" ? (
+                          <img
+                            alt="Campaign media"
+                            className="max-h-40 rounded-lg object-cover"
+                            src={selectedCampaign.mediaUrl}
+                          />
+                        ) : (
+                          <a
+                            className="break-all text-sm font-medium text-[#fe901d]"
+                            href={selectedCampaign.mediaUrl}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {selectedCampaign.mediaUrl}
+                          </a>
+                        )}
+                      </div>
+                    ) : null}
+                    {selectedCampaign.campaignContext ? (
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-white/5">
+                        <p className="mb-2 text-xs text-muted-foreground">Campaign Context</p>
+                        <p className="text-sm text-foreground dark:text-white">
+                          {selectedCampaign.campaignContext}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    ["Audience", selectedCampaign.audience],
+                    [
+                      "Audience",
+                      selectedCampaignDetail?.recipientCount ??
+                        selectedCampaign.audience,
+                    ],
                     ["Sent", selectedCampaign.sent],
-                    ["Delivered", selectedCampaign.delivered],
-                    ["Failed", selectedCampaign.failed],
+                    [
+                      "Delivered",
+                      selectedCampaignDetail?.deliveredRecipients ??
+                        selectedCampaign.delivered,
+                    ],
+                    [
+                      "Failed",
+                      selectedCampaignDetail?.failedRecipients ??
+                        selectedCampaign.failed,
+                    ],
                   ].map(([label, value]) => (
                     <div
                       key={label}
@@ -911,10 +1689,56 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                     </div>
                   ))}
                 </div>
-                <Button disabled className="w-full gap-1.5">
-                  <Send className="h-4 w-4" />
-                  Sending flow coming next
-                </Button>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      Event History
+                    </p>
+                    {selectedCampaignDetail?.latestEventType ? (
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Latest: {selectedCampaignDetail.latestEventType}
+                      </span>
+                    ) : null}
+                  </div>
+                  {selectedCampaignDetailQuery.isLoading ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-muted-foreground dark:border-white/10 dark:bg-white/5">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading campaign history
+                    </div>
+                  ) : selectedCampaignDetail?.events?.length ? (
+                    <div className="space-y-2">
+                      {selectedCampaignDetail.events.map((event) => (
+                        <div
+                          key={event.id}
+                          className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 dark:border-white/10 dark:bg-white/5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground dark:text-white">
+                                {event.summary}
+                              </p>
+                              <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                {event.eventType}
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                              {event.createdAt}
+                            </span>
+                          </div>
+                          {event.payloadPreview ? (
+                            <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                              {event.payloadPreview}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-gray-200 px-3 py-4 text-sm text-muted-foreground dark:border-white/10">
+                      No campaign events recorded yet.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

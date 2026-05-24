@@ -190,6 +190,13 @@ model Campaign {
   subtitle       String?
   message        String
   status         String    @default("draft")
+  mediaUrl       String?
+  mediaType      String?
+  useApprovedTemplate Boolean @default(false)
+  templateName   String?
+  templateLanguage String?
+  enableJenniferReplies Boolean @default(false)
+  campaignContext String?
   audienceFilter Json?
   audienceCount  Int       @default(0)
   sentCount      Int       @default(0)

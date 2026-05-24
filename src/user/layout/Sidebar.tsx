@@ -82,11 +82,11 @@ const navGroups: Array<NavGroup & { section: string }> = [
     name: "AI / Jennifer",
     icon: Bot,
     items: [
-      { name: "Overview", disabled: true },
-      { name: "Setup", disabled: true },
-      { name: "Knowledge Base", disabled: true },
-      { name: "Test AI", disabled: true },
-      { name: "Settings", disabled: true },
+      { name: "Overview", href: "/ai" },
+      { name: "Setup", href: "/ai/setup" },
+      { name: "Knowledge Base", href: "/ai/knowledge" },
+      { name: "Test AI", href: "/ai/test" },
+      { name: "Settings", href: "/ai/settings" },
     ],
   },
   {

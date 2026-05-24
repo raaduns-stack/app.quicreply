@@ -158,6 +158,37 @@ page UserDashboardPage {
   component: import UserDashboardPage from "@src/user/UserDashboardPage"
 }
 
+page AiOverviewPage {
+  authRequired: true,
+  component: import AiOverviewPage from "@src/user/AiOverviewPage"
+}
+
+route AiOverviewRoute { path: "/ai", to: AiOverviewPage }
+page AiSetupPage {
+  authRequired: true,
+  component: import AiSetupPage from "@src/user/AiSetupPage"
+}
+
+route AiSetupRoute { path: "/ai/setup", to: AiSetupPage }
+page AiKnowledgePage {
+  authRequired: true,
+  component: import AiKnowledgePage from "@src/user/AiKnowledgePage"
+}
+
+route AiKnowledgeRoute { path: "/ai/knowledge", to: AiKnowledgePage }
+page AiTestPage {
+  authRequired: true,
+  component: import AiTestPage from "@src/user/AiTestPage"
+}
+
+route AiTestRoute { path: "/ai/test", to: AiTestPage }
+page AiSettingsPage {
+  authRequired: true,
+  component: import AiSettingsPage from "@src/user/AiSettingsPage"
+}
+
+route AiSettingsRoute { path: "/ai/settings", to: AiSettingsPage }
+
 route DashboardWhatsAppRoute { path: "/dashboard/whatsapp", to: DashboardWhatsAppPage }
 page DashboardWhatsAppPage {
   authRequired: true,
@@ -452,9 +483,33 @@ query getCampaigns {
   auth: true
 }
 
+query estimateCampaignAudience {
+  fn: import { estimateCampaignAudience } from "@src/campaigns/operations",
+  entities: [User, Organization, Contact, Deal, PipelineStage, PipelineTemplate],
+  auth: true
+}
+
+query getCampaignPreview {
+  fn: import { getCampaignPreview } from "@src/campaigns/operations",
+  entities: [User, Organization, Contact, Deal, PipelineStage, PipelineTemplate],
+  auth: true
+}
+
+query getCampaignDetail {
+  fn: import { getCampaignDetail } from "@src/campaigns/operations",
+  entities: [User, Organization, Campaign, CampaignRecipient, CampaignMessageEvent],
+  auth: true
+}
+
 action createCampaign {
   fn: import { createCampaign } from "@src/campaigns/operations",
-  entities: [User, Organization, Contact, Campaign, CampaignRecipient],
+  entities: [User, Organization, Contact, Campaign, CampaignRecipient, Deal, PipelineStage, PipelineTemplate],
+  auth: true
+}
+
+action launchCampaign {
+  fn: import { launchCampaign } from "@src/campaigns/operations",
+  entities: [User, Organization, Campaign, CampaignRecipient, CampaignMessageEvent],
   auth: true
 }
 
@@ -479,6 +534,12 @@ api evolutionWhatsAppWebhook {
 api n8nWhatsAppReplyWebhook {
   fn: import { n8nWhatsAppReplyWebhook } from "@src/whatsapp/webhook",
   httpRoute: (POST, "/webhooks/n8n/whatsapp/reply"),
+  auth: false
+}
+
+api n8nCampaignStatusWebhook {
+  fn: import { n8nCampaignStatusWebhook } from "@src/campaigns/webhook",
+  httpRoute: (POST, "/webhooks/n8n/campaigns/status"),
   auth: false
 }
 //#endregion

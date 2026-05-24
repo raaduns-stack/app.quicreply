@@ -16,8 +16,16 @@ const UserLayout: FC<Props> = ({
   user,
   allowIncompleteOnboarding = false,
 }) => {
+  const sidebarStorageKey = "user-sidebar-expanded";
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    const storedValue = window.localStorage.getItem(sidebarStorageKey);
+    return storedValue === null ? true : storedValue === "true";
+  });
   const navigate = useNavigate();
   const isOnboardingCompleted =
     (user as AuthUser & { onboardingCompleted?: boolean })
@@ -28,6 +36,14 @@ const UserLayout: FC<Props> = ({
       navigate(routes.OnboardingRoute.to, { replace: true });
     }
   }, [allowIncompleteOnboarding, isOnboardingCompleted, navigate]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(sidebarStorageKey, String(isSidebarExpanded));
+  }, [isSidebarExpanded]);
 
   if (!isOnboardingCompleted && !allowIncompleteOnboarding) {
     return null;

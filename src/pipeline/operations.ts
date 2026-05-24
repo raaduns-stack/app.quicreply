@@ -99,6 +99,8 @@ export type DealDto = {
   customerName: string;
   phone?: string;
   contactId?: string;
+  createdAt: string;
+  updatedAt: string;
   value: number;
   currency: string;
   status: string;
@@ -384,6 +386,8 @@ function toDealDto(deal: Deal, stage: PipelineStage): DealDto {
     customerName: deal.customerName,
     phone: deal.phone ?? undefined,
     contactId: deal.contactId ?? undefined,
+    createdAt: deal.createdAt.toISOString(),
+    updatedAt: deal.updatedAt.toISOString(),
     value: decimalToNumber(deal.value),
     currency: deal.currency,
     status: deal.status,
@@ -650,8 +654,18 @@ export const updateDeal = async (
       notes: args.notes === undefined ? undefined : args.notes || null,
       lastInteractionAt: new Date(),
       lastStageChangedAt: stage ? new Date() : undefined,
-      wonAt: args.status === "won" ? new Date() : undefined,
-      lostAt: args.status === "lost" ? new Date() : undefined,
+      wonAt:
+        args.status === undefined
+          ? undefined
+          : args.status === "won"
+            ? new Date()
+            : null,
+      lostAt:
+        args.status === undefined
+          ? undefined
+          : args.status === "lost"
+            ? new Date()
+            : null,
     },
   });
 
@@ -698,7 +712,8 @@ export const updateDealStage = async (
       lastStageChangedAt: new Date(),
       lastInteractionAt: new Date(),
       status: stage.slug.includes("won") ? "won" : "open",
-      wonAt: stage.slug.includes("won") ? new Date() : undefined,
+      wonAt: stage.slug.includes("won") ? new Date() : null,
+      lostAt: null,
     },
   });
 
