@@ -42,8 +42,20 @@ const createCampaignArgsSchema = z.object({
   templateName: z.string().trim().max(160).optional().or(z.literal("")),
   templateLanguage: z.string().trim().max(40).optional().or(z.literal("")),
   enableJenniferReplies: z.boolean().default(false),
-  campaignContext: z.string().trim().max(2000).optional().or(z.literal("")),
+  campaignContext: z.string().trim().max(8000).optional().or(z.literal("")),
   audience: campaignAudienceFilterSchema,
+});
+
+const updateCampaignArgsSchema = createCampaignArgsSchema.extend({
+  campaignId: z.string().uuid(),
+});
+
+const deleteCampaignArgsSchema = z.object({
+  campaignId: z.string().uuid(),
+});
+
+const deleteManyCampaignsArgsSchema = z.object({
+  campaignIds: z.array(z.string().uuid()).min(1).max(200),
 });
 
 const estimateCampaignAudienceArgsSchema = z.object({
@@ -72,6 +84,15 @@ type AudienceContactRecord = {
   phone: string;
 };
 
+export type CampaignAiContext = {
+  offerSummary: string;
+  primaryGoal: string;
+  audienceNotes: string;
+  faqAndObjections: string;
+  allowedClaims: string;
+  handoffRules: string;
+};
+
 export type CampaignDto = {
   id: string;
   name: string;
@@ -84,6 +105,7 @@ export type CampaignDto = {
   templateLanguage: string | null;
   enableJenniferReplies: boolean;
   campaignContext: string | null;
+  audienceFilter: CampaignAudienceFilter | null;
   audience: number;
   status: (typeof campaignStatuses)[number];
   sent: number;
@@ -119,6 +141,7 @@ export type CampaignLaunchPayload = {
   templateLanguage: string | null;
   enableJenniferReplies: boolean;
   campaignContext: string | null;
+  campaignAiContext: CampaignAiContext | null;
   audienceCount: number;
   recipients: Array<{
     campaignRecipientId: string;
@@ -157,6 +180,10 @@ type CampaignLaunchResultDto = {
   };
 };
 
+type CampaignDeleteManyResultDto = {
+  deletedIds: string[];
+};
+
 export type CampaignEventDto = {
   id: string;
   eventType: string;
@@ -172,6 +199,10 @@ export type CampaignDetailDto = CampaignDto & {
   failedRecipients: number;
   latestEventType: string | null;
   events: CampaignEventDto[];
+};
+
+export type CampaignMutationDto = {
+  campaign: CampaignDto;
 };
 
 function ensureUserId(context: any) {
@@ -257,6 +288,86 @@ function renderCampaignMessage(
     .replace(/\{\{\s*last_action\s*\}\}/gi, variables.lastAction);
 }
 
+function normalizeCampaignAiContext(
+  input: Partial<CampaignAiContext> | null | undefined,
+): CampaignAiContext {
+  return {
+    offerSummary: input?.offerSummary?.trim() ?? "",
+    primaryGoal: input?.primaryGoal?.trim() ?? "",
+    audienceNotes: input?.audienceNotes?.trim() ?? "",
+    faqAndObjections: input?.faqAndObjections?.trim() ?? "",
+    allowedClaims: input?.allowedClaims?.trim() ?? "",
+    handoffRules: input?.handoffRules?.trim() ?? "",
+  };
+}
+
+function buildCampaignContextSummary(aiContext: CampaignAiContext) {
+  return [
+    aiContext.offerSummary ? `Offer summary: ${aiContext.offerSummary}` : "",
+    aiContext.primaryGoal ? `Primary goal: ${aiContext.primaryGoal}` : "",
+    aiContext.audienceNotes ? `Audience notes: ${aiContext.audienceNotes}` : "",
+    aiContext.faqAndObjections ? `FAQs and objections: ${aiContext.faqAndObjections}` : "",
+    aiContext.allowedClaims ? `Allowed claims: ${aiContext.allowedClaims}` : "",
+    aiContext.handoffRules ? `Handoff rules: ${aiContext.handoffRules}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function serializeCampaignAiContext(
+  input: Partial<CampaignAiContext> | null | undefined,
+) {
+  const normalized = normalizeCampaignAiContext(input);
+  const hasAnyContent = Object.values(normalized).some(Boolean);
+
+  if (!hasAnyContent) {
+    return "";
+  }
+
+  return JSON.stringify({
+    version: 1,
+    summary: buildCampaignContextSummary(normalized),
+    aiContext: normalized,
+  });
+}
+
+function parseCampaignContext(
+  rawValue: string | null | undefined,
+): { summary: string | null; aiContext: CampaignAiContext | null } {
+  const value = rawValue?.trim();
+  if (!value) {
+    return { summary: null, aiContext: null };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as {
+      version?: number;
+      summary?: unknown;
+      aiContext?: Partial<CampaignAiContext>;
+    };
+
+    if (parsed && typeof parsed === "object") {
+      const aiContext = normalizeCampaignAiContext(parsed.aiContext);
+      const summary =
+        typeof parsed.summary === "string" && parsed.summary.trim()
+          ? parsed.summary.trim()
+          : buildCampaignContextSummary(aiContext) || value;
+
+      return { summary, aiContext };
+    }
+  } catch {
+    return {
+      summary: value,
+      aiContext: null,
+    };
+  }
+
+  return {
+    summary: value,
+    aiContext: null,
+  };
+}
+
 function ensureCampaignCanLaunch(campaign: CampaignRecord) {
   if (campaign.status !== "draft" && campaign.status !== "failed") {
     throw new HttpError(
@@ -298,6 +409,8 @@ function buildCampaignLaunchPayload(input: {
     status: string;
   }>;
 }): CampaignLaunchPayload {
+  const campaignContext = parseCampaignContext(input.campaign.campaignContext);
+
   return {
     organizationId: input.organizationId,
     campaignId: input.campaign.id,
@@ -310,7 +423,8 @@ function buildCampaignLaunchPayload(input: {
     templateName: input.campaign.templateName ?? null,
     templateLanguage: input.campaign.templateLanguage ?? null,
     enableJenniferReplies: input.campaign.enableJenniferReplies,
-    campaignContext: input.campaign.campaignContext ?? null,
+    campaignContext: campaignContext.summary,
+    campaignAiContext: campaignContext.aiContext,
     audienceCount: input.campaign.audienceCount,
     recipients: input.recipients.map((recipient) => ({
       campaignRecipientId: recipient.id,
@@ -409,6 +523,18 @@ async function postCampaignLaunchToN8n(payload: CampaignLaunchPayload) {
   } as const;
 }
 
+function ensureCampaignRuntimeReadyForLaunch() {
+  const inboundUrl = env.N8N_CAMPAIGN_WEBHOOK_URL?.trim();
+
+  if (!inboundUrl) {
+    throw new HttpError(
+      400,
+      "Campaign launch worker is not configured yet.",
+    );
+  }
+
+}
+
 async function resolveAudienceContacts(
   organizationId: string,
   audience: CampaignAudienceFilter,
@@ -496,6 +622,101 @@ async function resolveAudienceContacts(
   }
 }
 
+function normalizeCampaignAudienceFilterForStorage(
+  audience: CampaignAudienceFilter,
+  contacts: AudienceContactRecord[],
+): CampaignAudienceFilter {
+  if (audience.mode !== "manual") {
+    return audience;
+  }
+
+  return {
+    ...audience,
+    contactIds: contacts.map((contact) => contact.id),
+  };
+}
+
+async function syncCampaignAudienceSnapshot(
+  campaignId: string,
+  organizationId: string,
+) {
+  const campaign = await prisma.campaign.findFirst({
+    where: {
+      id: campaignId,
+      organizationId,
+    },
+  });
+
+  if (!campaign) {
+    throw new HttpError(404, "Campaign not found.");
+  }
+
+  const audience = normalizeAudienceFilter(
+    (campaign.audienceFilter as CampaignAudienceFilter | null) ?? {
+      mode: "allContacts",
+      tags: [],
+      stageIds: [],
+      contactIds: [],
+    },
+  );
+  const contacts = await resolveAudienceContacts(organizationId, audience);
+  const nextAudienceFilter = normalizeCampaignAudienceFilterForStorage(
+    audience,
+    contacts,
+  );
+
+  const updatedCampaign = await prisma.$transaction(async (tx) => {
+    await tx.campaignRecipient.deleteMany({
+      where: { campaignId: campaign.id },
+    });
+
+    if (contacts.length > 0) {
+      await tx.campaignRecipient.createMany({
+        data: contacts.map((contact) => ({
+          campaignId: campaign.id,
+          contactId: contact.id,
+          phone: contact.phone,
+          name: contact.name,
+          status: "queued",
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    return tx.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        audienceFilter: nextAudienceFilter,
+        audienceCount: contacts.length,
+        sentCount: 0,
+        deliveredCount: 0,
+        failedCount: 0,
+        sentAt: null,
+      },
+    });
+  });
+
+  return updatedCampaign;
+}
+
+export async function syncNonRunningCampaignAudiencesForOrganization(
+  organizationId: string,
+) {
+  const campaigns = await prisma.campaign.findMany({
+    where: {
+      organizationId,
+      status: {
+        in: ["draft", "failed"],
+      },
+    },
+    select: { id: true },
+  });
+
+  for (const campaign of campaigns) {
+    await syncCampaignAudienceSnapshot(campaign.id, organizationId);
+  }
+}
+
 async function getCampaignPreviewForAudience(
   organizationId: string,
   message: string,
@@ -573,6 +794,7 @@ function toCampaignDto(campaign: CampaignRecord): CampaignDto {
     templateLanguage: campaign.templateLanguage ?? null,
     enableJenniferReplies: campaign.enableJenniferReplies,
     campaignContext: campaign.campaignContext ?? null,
+    audienceFilter: (campaign.audienceFilter as CampaignAudienceFilter | null) ?? null,
     audience: campaign.audienceCount,
     status: normalizeStatus(campaign.status),
     sent: campaign.sentCount,
@@ -781,6 +1003,155 @@ export const createCampaign = async (
   return toCampaignDto(campaign);
 };
 
+export const updateCampaign = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<CampaignDto> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    updateCampaignArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+
+  const existingCampaign = await prisma.campaign.findFirst({
+    where: {
+      id: args.campaignId,
+      organizationId: organization.id,
+    },
+  });
+
+  if (!existingCampaign) {
+    throw new HttpError(404, "Campaign not found.");
+  }
+
+  if (existingCampaign.status !== "draft" && existingCampaign.status !== "failed") {
+    throw new HttpError(400, "Only draft or failed campaigns can be edited.");
+  }
+
+  if (args.useApprovedTemplate) {
+    if (!args.templateName?.trim() || !args.templateLanguage?.trim()) {
+      throw new HttpError(
+        400,
+        "Template name and language are required when approved template mode is enabled.",
+      );
+    }
+  }
+
+  const audience = normalizeAudienceFilter(args.audience);
+  const contacts = await resolveAudienceContacts(organization.id, audience);
+
+  const updatedCampaign = await prisma.$transaction(async (tx) => {
+    const campaign = await tx.campaign.update({
+      where: { id: existingCampaign.id },
+      data: {
+        name: args.name,
+        subtitle: args.subtitle || null,
+        message: args.message,
+        mediaUrl: args.mediaUrl || null,
+        mediaType: args.mediaType || null,
+        useApprovedTemplate: args.useApprovedTemplate,
+        templateName: args.templateName || null,
+        templateLanguage: args.templateLanguage || null,
+        enableJenniferReplies: args.enableJenniferReplies,
+        campaignContext: args.campaignContext || null,
+        audienceFilter: audience,
+        audienceCount: contacts.length,
+      },
+    });
+
+    await tx.campaignRecipient.deleteMany({
+      where: { campaignId: existingCampaign.id },
+    });
+
+    if (contacts.length > 0) {
+      await tx.campaignRecipient.createMany({
+        data: contacts.map((contact) => ({
+          campaignId: existingCampaign.id,
+          contactId: contact.id,
+          phone: contact.phone,
+          name: contact.name,
+          status: "queued",
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    return campaign;
+  });
+
+  return toCampaignDto(updatedCampaign);
+};
+
+export const deleteCampaign = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<CampaignMutationDto> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    deleteCampaignArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+
+  const campaign = await prisma.campaign.findFirst({
+    where: {
+      id: args.campaignId,
+      organizationId: organization.id,
+    },
+  });
+
+  if (!campaign) {
+    throw new HttpError(404, "Campaign not found.");
+  }
+
+  if (campaign.status !== "draft" && campaign.status !== "failed") {
+    throw new HttpError(400, "Only draft or failed campaigns can be deleted.");
+  }
+
+  const deletedCampaign = await prisma.campaign.delete({
+    where: { id: campaign.id },
+  });
+
+  return { campaign: toCampaignDto(deletedCampaign) };
+};
+
+export const deleteManyCampaigns = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<CampaignDeleteManyResultDto> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    deleteManyCampaignsArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+
+  const deletableCampaigns = await prisma.campaign.findMany({
+    where: {
+      id: { in: args.campaignIds },
+      organizationId: organization.id,
+      status: { in: ["draft", "failed"] },
+    },
+    select: { id: true },
+  });
+
+  const deletableIds = deletableCampaigns.map((campaign) => campaign.id);
+  if (deletableIds.length === 0) {
+    return { deletedIds: [] };
+  }
+
+  await prisma.campaign.deleteMany({
+    where: {
+      id: { in: deletableIds },
+      organizationId: organization.id,
+      status: { in: ["draft", "failed"] },
+    },
+  });
+
+  return { deletedIds: deletableIds };
+};
+
 export const launchCampaign = async (
   rawArgs: unknown,
   context: any,
@@ -803,11 +1174,17 @@ export const launchCampaign = async (
     throw new HttpError(404, "Campaign not found.");
   }
 
-  ensureCampaignCanLaunch(campaign);
+  const refreshedCampaign = await syncCampaignAudienceSnapshot(
+    campaign.id,
+    organization.id,
+  );
+
+  ensureCampaignCanLaunch(refreshedCampaign);
+  ensureCampaignRuntimeReadyForLaunch();
 
   const recipients = await prisma.campaignRecipient.findMany({
     where: {
-      campaignId: campaign.id,
+      campaignId: refreshedCampaign.id,
     },
     orderBy: [{ createdAt: "asc" }],
     select: {
@@ -828,7 +1205,7 @@ export const launchCampaign = async (
 
   const payload = buildCampaignLaunchPayload({
     organizationId: organization.id,
-    campaign,
+    campaign: refreshedCampaign,
     recipients,
   });
 
@@ -844,7 +1221,7 @@ export const launchCampaign = async (
     });
 
     const updatedCampaign = await tx.campaign.update({
-      where: { id: campaign.id },
+      where: { id: refreshedCampaign.id },
       data: {
         status: "queued",
       },
@@ -852,7 +1229,7 @@ export const launchCampaign = async (
 
     await tx.campaignMessageEvent.create({
       data: {
-        campaignId: campaign.id,
+        campaignId: refreshedCampaign.id,
         eventType: "launch_queued",
         rawPayload: payload,
       },
@@ -867,7 +1244,7 @@ export const launchCampaign = async (
     if (!handoff.attempted) {
       await prisma.campaignMessageEvent.create({
         data: {
-          campaignId: campaign.id,
+          campaignId: refreshedCampaign.id,
           eventType: "launch_waiting_for_n8n_config",
           rawPayload: payload,
         },
@@ -875,7 +1252,7 @@ export const launchCampaign = async (
     } else {
       await prisma.campaignMessageEvent.create({
         data: {
-          campaignId: campaign.id,
+          campaignId: refreshedCampaign.id,
           eventType: "n8n_handoff_delivered",
           rawPayload: payload,
         },
@@ -889,7 +1266,7 @@ export const launchCampaign = async (
   } catch (error: any) {
     const failedCampaign = await prisma.$transaction(async (tx) => {
       const updatedCampaign = await tx.campaign.update({
-        where: { id: campaign.id },
+        where: { id: refreshedCampaign.id },
         data: {
           status: "failed",
         },
@@ -897,7 +1274,7 @@ export const launchCampaign = async (
 
       await tx.campaignMessageEvent.create({
         data: {
-          campaignId: campaign.id,
+          campaignId: refreshedCampaign.id,
           eventType: "n8n_handoff_failed",
           rawPayload: {
             payload,

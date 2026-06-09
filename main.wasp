@@ -394,6 +394,12 @@ action deleteContact {
   auth: true
 }
 
+action deleteManyContacts {
+  fn: import { deleteManyContacts } from "@src/contacts/operations",
+  entities: [User, Organization, Contact, Campaign, CampaignRecipient],
+  auth: true
+}
+
 action sendContactWhatsAppMessage {
   fn: import { sendContactWhatsAppMessage } from "@src/contacts/operations",
   entities: [User, Organization, Contact, WhatsAppMessageLog],
@@ -502,6 +508,24 @@ action createCampaign {
   auth: true
 }
 
+action updateCampaign {
+  fn: import { updateCampaign } from "@src/campaigns/operations",
+  entities: [User, Organization, Contact, Campaign, CampaignRecipient, Deal, PipelineStage, PipelineTemplate],
+  auth: true
+}
+
+action deleteCampaign {
+  fn: import { deleteCampaign } from "@src/campaigns/operations",
+  entities: [User, Organization, Campaign, CampaignRecipient],
+  auth: true
+}
+
+action deleteManyCampaigns {
+  fn: import { deleteManyCampaigns } from "@src/campaigns/operations",
+  entities: [User, Organization, Campaign, CampaignRecipient],
+  auth: true
+}
+
 action launchCampaign {
   fn: import { launchCampaign } from "@src/campaigns/operations",
   entities: [User, Organization, Campaign, CampaignRecipient, CampaignMessageEvent],
@@ -520,9 +544,41 @@ action completeOfficialApiSetup {
   auth: true
 }
 
+action beginOfficialApiEmbeddedSignup {
+  fn: import { beginOfficialApiEmbeddedSignup } from "@src/whatsapp/operations",
+  entities: [User, Organization],
+  auth: true
+}
+
+action saveOfficialApiEmbeddedSignupAssets {
+  fn: import { saveOfficialApiEmbeddedSignupAssets } from "@src/whatsapp/operations",
+  entities: [User, Organization],
+  auth: true
+}
+
+action completeOfficialApiEmbeddedSignupSession {
+  fn: import { completeOfficialApiEmbeddedSignupSession } from "@src/whatsapp/operations",
+  entities: [User, Organization],
+  auth: true
+}
+
 api evolutionWhatsAppWebhook {
   fn: import { evolutionWhatsAppWebhook } from "@src/whatsapp/webhook",
   httpRoute: (POST, "/webhooks/evolution/whatsapp"),
+  auth: false
+}
+
+api metaWhatsAppWebhook {
+  fn: import { metaWhatsAppWebhook } from "@src/whatsapp/webhook",
+  middlewareConfigFn: import { metaWebhookMiddlewareConfigFn } from "@src/whatsapp/webhook",
+  httpRoute: (ALL, "/webhooks/meta/whatsapp"),
+  auth: false
+}
+
+api metaWhatsAppWebhookLegacyAlias {
+  fn: import { metaWhatsAppWebhook } from "@src/whatsapp/webhook",
+  middlewareConfigFn: import { metaWebhookMiddlewareConfigFn } from "@src/whatsapp/webhook",
+  httpRoute: (ALL, "/webhook/meta"),
   auth: false
 }
 
@@ -535,6 +591,12 @@ api n8nWhatsAppReplyWebhook {
 api n8nCampaignStatusWebhook {
   fn: import { n8nCampaignStatusWebhook } from "@src/campaigns/webhook",
   httpRoute: (POST, "/webhooks/n8n/campaigns/status"),
+  auth: false
+}
+
+api n8nCampaignSendRecipientWebhook {
+  fn: import { n8nCampaignSendRecipientWebhook } from "@src/campaigns/webhook",
+  httpRoute: (POST, "/webhooks/n8n/campaigns/send-recipient"),
   auth: false
 }
 //#endregion

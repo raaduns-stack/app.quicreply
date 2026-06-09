@@ -328,6 +328,13 @@ type OnboardingQrStatus =
 type OnboardingQrState = {
   status: OnboardingQrStatus;
   connected: boolean;
+  disconnectReason:
+    | "linked_device_lost"
+    | "qr_expired"
+    | "provider_error"
+    | "manual_disconnect"
+    | "disconnected"
+    | null;
   codeData: string | null;
   sessionId: string | null;
   deviceInfo: string | null;
@@ -354,6 +361,61 @@ function getQrImageSrc(codeData: string | null) {
   }
 
   return `data:image/png;base64,${codeData}`;
+}
+
+function getOnboardingQrStatusLabel(qr: OnboardingQrState | null, qrConnected: boolean) {
+  const status =
+    qr?.status ?? (qrConnected ? "connected" : "disconnected");
+
+  if (status === "connected" || qr?.connected || qrConnected) {
+    return "Connected";
+  }
+
+  if (status === "pending") {
+    return "Scanning now";
+  }
+
+  if (status === "expired" || qr?.disconnectReason === "qr_expired") {
+    return "QR expired";
+  }
+
+  if (qr?.disconnectReason === "linked_device_lost") {
+    return "Session lost";
+  }
+
+  if (status === "failed" || qr?.disconnectReason === "provider_error") {
+    return "Needs recovery";
+  }
+
+  if (qr?.disconnectReason === "manual_disconnect") {
+    return "Disconnected";
+  }
+
+  return "Ready to scan";
+}
+
+function getOnboardingQrHelperText(qr: OnboardingQrState | null, qrImageSrc: string | null) {
+  if (qr?.lastError) {
+    return qr.lastError;
+  }
+
+  if (qr?.disconnectReason === "linked_device_lost") {
+    return "WhatsApp lost the linked-device session. Generate a fresh QR and scan it again.";
+  }
+
+  if (qr?.disconnectReason === "qr_expired" || qr?.status === "expired") {
+    return "The QR expired before the phone finished linking. Generate a fresh QR and scan it immediately.";
+  }
+
+  if (qr?.disconnectReason === "provider_error" || qr?.status === "failed") {
+    return "The QR session could not be kept alive. Recover with a fresh QR.";
+  }
+
+  if (qr?.status === "pending" && !qrImageSrc) {
+    return "Evolution is preparing the QR code. Please refresh in a moment.";
+  }
+
+  return null;
 }
 
 export default function OnboardingPage({ user }: { user: AuthUser }) {
@@ -449,6 +511,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
         ? {
             status: "connected",
             connected: true,
+            disconnectReason: null,
             codeData: null,
             sessionId: null,
             deviceInfo: data.organization.name ?? null,
@@ -566,6 +629,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
       setOnboardingQrState((current) => ({
         status: "failed",
         connected: false,
+        disconnectReason: "provider_error",
         codeData: null,
         sessionId: current?.sessionId ?? null,
         deviceInfo: current?.deviceInfo ?? null,
@@ -611,6 +675,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
           ? {
               ...current,
               status: "failed",
+              disconnectReason: "provider_error",
               lastError: err?.message || "Could not refresh QR status.",
             }
           : current,
@@ -704,6 +769,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
               ? {
                   ...current,
                   status: "failed",
+                  disconnectReason: "provider_error",
                   lastError: err?.message || "Could not refresh QR status.",
                 }
               : current,
@@ -759,21 +825,18 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
     Boolean(onboardingQrState?.connected) ||
     watchedValues.qrConnected;
   const qrIsPending = qrStatus === "pending";
-  const qrStatusLabel = qrIsConnected
-    ? "Connected"
-    : qrIsPending
-      ? "Scanning now"
-      : qrStatus === "failed"
-        ? "Needs attention"
-        : qrStatus === "expired"
-          ? "Expired"
-          : "Ready to scan";
+  const qrStatusLabel = getOnboardingQrStatusLabel(
+    onboardingQrState,
+    watchedValues.qrConnected,
+  );
+  const qrHelperText = getOnboardingQrHelperText(onboardingQrState, qrImageSrc);
   const qrPrimaryActionLabel = qrIsConnected
     ? "Continue to AI + Lead Engine"
     : !onboardingQrState?.sessionId ||
+        onboardingQrState?.disconnectReason === "linked_device_lost" ||
         qrStatus === "failed" ||
         qrStatus === "expired"
-      ? "Generate QR"
+      ? "Recover QR"
       : "Refresh QR status";
   const buttonBusy =
     isSavingStep || showTrainingOverlay || isStartingQr || isRefreshingQr;
@@ -1306,10 +1369,9 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
               </p>
             </div>
 
-            {onboardingQrState?.lastError || (qrIsPending && !qrImageSrc) ? (
+            {qrHelperText ? (
               <div className="rounded-[14px] border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-200">
-                {onboardingQrState?.lastError ??
-                  "Evolution is preparing the QR code. Please refresh in a moment."}
+                {qrHelperText}
               </div>
             ) : null}
 
@@ -1396,6 +1458,7 @@ export default function OnboardingPage({ user }: { user: AuthUser }) {
                   }
                   if (
                     !onboardingQrState?.sessionId ||
+                    onboardingQrState?.disconnectReason === "linked_device_lost" ||
                     qrStatus === "failed" ||
                     qrStatus === "expired"
                   ) {

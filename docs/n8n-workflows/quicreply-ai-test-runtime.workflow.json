@@ -1,0 +1,159 @@
+{
+  "id": "quicreply-ai-test-runtime",
+  "name": "QuicReply AI Test Runtime",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quicreply-ai-test",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "id": "webhook-ai-test",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $json.body ?? $json;\nconst headers = $json.headers ?? {};\nconst configuredSecret = 'qr-local-ai-test-secret';\nconst incomingSecret = String(headers['x-quicreply-webhook-secret'] || headers['X-Quicreply-Webhook-Secret'] || '').trim();\n\nconst contextQuality = request.contextQuality ?? {};\nconst businessContext = request.businessContext ?? {};\nconst businessDescription = typeof businessContext.businessDescription === 'string' ? businessContext.businessDescription.trim() : '';\nconst productsServices = typeof businessContext.productsServices === 'string' ? businessContext.productsServices.trim() : '';\nconst aiKnowledge = request.aiKnowledge ?? {};\nconst staffDisplayName = typeof request.staff?.displayName === 'string' ? request.staff.displayName.trim() : '';\n\nlet guardMessage = '';\nif (configuredSecret && incomingSecret !== configuredSecret) {\n  guardMessage = 'Unauthorized AI test webhook request.';\n} else if (!contextQuality.isReady || !businessDescription || !productsServices) {\n  guardMessage = 'Complete Jennifer setup before testing.';\n}\n\nconst history = Array.isArray(request.conversationHistory) ? request.conversationHistory : [];\nconst recentHistory = history\n  .filter((entry) => entry && typeof entry.text === 'string' && entry.text.trim())\n  .slice(-6)\n  .map((entry) => `${entry.role || 'user'}: ${entry.text.trim()}`);\n\nconst responseStyle = typeof businessContext.responseStyle === 'string' && businessContext.responseStyle.trim()\n  ? businessContext.responseStyle.trim()\n  : 'professional';\nconst aiLanguage = typeof businessContext.aiLanguage === 'string' && businessContext.aiLanguage.trim()\n  ? businessContext.aiLanguage.trim()\n  : 'english';\nconst organizationName = typeof request.organization?.name === 'string' && request.organization.name.trim()\n  ? request.organization.name.trim()\n  : 'the business';\nconst customerPrompt = typeof request.prompt === 'string' ? request.prompt.trim() : '';\n\nconst prompt = [\n  'You are Jennifer, the QuicReply AI assistant.',\n  'This is a TEST SANDBOX ONLY.',\n  'You must never claim that you sent a message, completed a handoff, attached proof, generated a screenshot, updated a CRM, or performed any live action.',\n  'If the user asks you to send, prove, confirm delivery, or show evidence, clearly say this sandbox can only draft the reply and cannot perform the action.',\n  'Do not invent pricing, guarantees, AI credits, usage allowances, or product capabilities that are not provided below.',\n  'If information is missing, say so briefly and offer a safe next step.',\n  staffDisplayName ? `Workspace owner reference: ${staffDisplayName}. Use this only when directly relevant.` : '',\n  `Business: ${businessDescription || 'Not provided.'}`,\n  `Products/services: ${productsServices || 'Not provided.'}`,\n  `Pricing and plans: ${typeof aiKnowledge.pricingAndPlans === 'string' ? aiKnowledge.pricingAndPlans.trim() : 'Not provided.'}`,\n  `Seats, usage, and limits: ${typeof aiKnowledge.seatsAndLimits === 'string' ? aiKnowledge.seatsAndLimits.trim() : 'Not provided.'}`,\n  `Core features: ${typeof aiKnowledge.coreFeatures === 'string' ? aiKnowledge.coreFeatures.trim() : 'Not provided.'}`,\n  `Product pages: ${typeof aiKnowledge.productPages === 'string' ? aiKnowledge.productPages.trim() : 'Not provided.'}`,\n  `Policies and FAQs: ${typeof aiKnowledge.policiesAndFaqs === 'string' ? aiKnowledge.policiesAndFaqs.trim() : 'Not provided.'}`,\n  `Organization: ${organizationName}`,\n  `Response style: ${responseStyle}`,\n  `Language: ${aiLanguage}`,\n  `Conversation history:\\n${recentHistory.length ? recentHistory.join('\\n') : 'No prior conversation.'}`,\n  `Customer message: ${customerPrompt || 'No customer message.'}`,\n  'Reply in 2-5 sentences.',\n  'Return plain answer text only.'\n].filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    guardMessage,\n    openclawBaseUrl: 'http://127.0.0.1:18789',\n    openclawToken: 'qr-local-openclaw-token-20260607',\n    openclawModel: 'openclaw/ai-test',\n    openclawPrompt: prompt\n  }\n}];"
+      },
+      "id": "prepare-request",
+      "name": "Prepare Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.openclawBaseUrl + '/v1/responses' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.openclawToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.openclawModel, input: $json.openclawPrompt }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "call-openclaw",
+      "name": "Call OpenClaw",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        420
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition"
+      },
+      "id": "merge-runtime-and-request",
+      "name": "Merge Runtime And Request",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "if ($json.guardMessage) {\n  return [{\n    json: {\n      message: $json.guardMessage,\n      route: 'n8n.guard',\n      warnings: []\n    }\n  }];\n}\n\nif ($json.error) {\n  return [{\n    json: {\n      message: 'Jennifer runtime could not be reached.',\n      route: 'openclaw.ai-test',\n      warnings: ['runtime_unreachable']\n    }\n  }];\n}\n\nconst output = Array.isArray($json.output) ? $json.output : [];\nconst text = output\n  .flatMap((entry) => Array.isArray(entry.content) ? entry.content : [])\n  .find((content) => content?.type === 'output_text' && typeof content.text === 'string')\n  ?.text\n  ?.trim();\n\nconst looksInvalid = !text || text.startsWith('```') || text.includes('<tool') || text.includes('\"tool_name\"');\nif (looksInvalid) {\n  return [{\n    json: {\n      message: 'Jennifer runtime failed to produce a response.',\n      route: 'openclaw.ai-test',\n      warnings: ['runtime_invalid_output']\n    }\n  }];\n}\n\nconst fakeActionPatterns = [\n  /\\bi(?:'ve| have)? sent\\b/i,\n  /\\bi(?:'ll| will) send\\b/i,\n  /\\bsent (?:it|that|the follow-?up)\\b/i,\n  /\\bhere(?:'s| is) (?:a )?screenshot\\b/i,\n  /\\bproof\\b/i,\n  /\\bi(?:'ve| have)? attached\\b/i,\n  /\\bit has been sent\\b/i,\n];\n\nif (fakeActionPatterns.some((pattern) => pattern.test(text))) {\n  return [{\n    json: {\n      message: 'I can’t actually send messages, attach proof, or complete live actions from this test sandbox. I can draft the exact reply Jennifer should send instead.',\n      route: 'openclaw.ai-test',\n      warnings: ['sandbox_claim_blocked']\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    message: text,\n    route: 'openclaw.ai-test',\n    warnings: []\n  }\n}];"
+      },
+      "id": "finalize-response",
+      "name": "Finalize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Runtime And Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Call OpenClaw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenClaw": {
+      "main": [
+        [
+          {
+            "node": "Merge Runtime And Request",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Runtime And Request": {
+      "main": [
+        [
+          {
+            "node": "Finalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "versionId": "2e31ab20-1ee0-4b32-af35-2cc2815cf8dc"
+}

@@ -1,0 +1,321 @@
+{
+  "id": "quicreply-campaign-runtime",
+  "name": "QuicReply Campaign Runtime",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quicreply-campaign-launch",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "id": "campaign-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $json.body ?? $json;\nconst headers = $json.headers ?? {};\nconst incomingSecret = String(headers['x-quicreply-webhook-secret'] || headers['X-Quicreply-Webhook-Secret'] || '').trim();\nconst configuredSecret = '';\n\nif (configuredSecret && incomingSecret !== configuredSecret) {\n  throw new Error('Unauthorized campaign webhook request.');\n}\n\nconst campaignId = String(request.campaignId || '').trim();\nconst recipients = Array.isArray(request.recipients) ? request.recipients : [];\n\nif (!campaignId) {\n  throw new Error('Missing campaignId.');\n}\n\nif (recipients.length === 0) {\n  throw new Error('Campaign launch has no recipients.');\n}\n\nreturn [{\n  json: {\n    campaignId,\n    recipientCount: recipients.length,\n    recipients,\n    webhookSecret: configuredSecret || incomingSecret,\n    statusWebhookUrl: 'http://127.0.0.1:3001/webhooks/n8n/campaigns/status',\n    sendRecipientUrl: 'http://127.0.0.1:3001/webhooks/n8n/campaigns/send-recipient',\n    sendingPayload: {\n      campaignId,\n      status: 'sending',\n      sentCount: 0,\n      deliveredCount: 0,\n      failedCount: 0,\n      recipients: recipients.map((recipient) => ({\n        campaignRecipientId: recipient.campaignRecipientId,\n        phone: recipient.phone,\n        status: 'queued',\n        providerMessageId: null,\n        lastError: null\n      }))\n    }\n  }\n}];"
+      },
+      "id": "prepare-campaign",
+      "name": "Prepare Campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.statusWebhookUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-quicreply-webhook-secret",
+              "value": "={{ $json.webhookSecret }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.sendingPayload) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "mark-sending",
+      "name": "Mark Sending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Prepare Campaign').item.json;\nreturn source.recipients.map((recipient, index) => ({\n  json: {\n    index,\n    campaignId: source.campaignId,\n    campaignRecipientId: recipient.campaignRecipientId,\n    phone: recipient.phone,\n    webhookSecret: source.webhookSecret,\n    sendRecipientUrl: source.sendRecipientUrl,\n    statusWebhookUrl: source.statusWebhookUrl,\n    recipientCount: source.recipientCount\n  }\n}));"
+      },
+      "id": "expand-recipients",
+      "name": "Expand Recipients",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.sendRecipientUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-quicreply-webhook-secret",
+              "value": "={{ $json.webhookSecret }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ campaignId: $json.campaignId, campaignRecipientId: $json.campaignRecipientId }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-recipient",
+      "name": "Send Recipient",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = $input.all().map((item) => item.json ?? {});\nconst base = $('Prepare Campaign').item.json;\nconst sentCount = results.filter((item) => item.status === 'sent' || item.status === 'delivered').length;\nconst deliveredCount = results.filter((item) => item.status === 'delivered').length;\nconst failedCount = results.filter((item) => item.status === 'failed').length;\nconst finalStatus = failedCount > 0 ? 'failed' : 'sent';\n\nreturn [{\n  json: {\n    response: {\n      ok: failedCount === 0,\n      accepted: true,\n      simulated: false,\n      campaignId: base.campaignId,\n      recipientCount: base.recipientCount,\n      sentCount,\n      deliveredCount,\n      failedCount,\n      finalStatus\n    },\n    statusWebhookUrl: base.statusWebhookUrl,\n    webhookSecret: base.webhookSecret,\n    finalPayload: {\n      campaignId: base.campaignId,\n      status: finalStatus,\n      sentCount,\n      deliveredCount,\n      failedCount,\n      sentAt: new Date().toISOString(),\n      failureReason: failedCount > 0 ? `${failedCount} recipient(s) failed during campaign send.` : null,\n      recipients: results.map((item) => ({\n        campaignRecipientId: item.campaignRecipientId,\n        phone: item.phone,\n        status: item.status || 'failed',\n        providerMessageId: item.providerMessageId || null,\n        lastError: item.lastError || null,\n        sentAt: item.sentAt || undefined,\n        deliveredAt: item.deliveredAt || undefined\n      }))\n    }\n  }\n}];"
+      },
+      "id": "summarize-delivery",
+      "name": "Summarize Delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.statusWebhookUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-quicreply-webhook-secret",
+              "value": "={{ $json.webhookSecret }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.finalPayload) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "mark-final-status",
+      "name": "Mark Final Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "campaign-response-ok",
+              "name": "ok",
+              "type": "boolean",
+              "value": "={{ $('Summarize Delivery').item.json.response.ok }}"
+            },
+            {
+              "id": "campaign-response-accepted",
+              "name": "accepted",
+              "type": "boolean",
+              "value": "={{ true }}"
+            },
+            {
+              "id": "campaign-response-simulated",
+              "name": "simulated",
+              "type": "boolean",
+              "value": "={{ false }}"
+            },
+            {
+              "id": "campaign-response-campaign-id",
+              "name": "campaignId",
+              "type": "string",
+              "value": "={{ $('Summarize Delivery').item.json.response.campaignId }}"
+            },
+            {
+              "id": "campaign-response-recipient-count",
+              "name": "recipientCount",
+              "type": "number",
+              "value": "={{ $('Summarize Delivery').item.json.response.recipientCount }}"
+            },
+            {
+              "id": "campaign-response-sent-count",
+              "name": "sentCount",
+              "type": "number",
+              "value": "={{ $('Summarize Delivery').item.json.response.sentCount }}"
+            },
+            {
+              "id": "campaign-response-delivered-count",
+              "name": "deliveredCount",
+              "type": "number",
+              "value": "={{ $('Summarize Delivery').item.json.response.deliveredCount }}"
+            },
+            {
+              "id": "campaign-response-failed-count",
+              "name": "failedCount",
+              "type": "number",
+              "value": "={{ $('Summarize Delivery').item.json.response.failedCount }}"
+            },
+            {
+              "id": "campaign-response-final-status",
+              "name": "finalStatus",
+              "type": "string",
+              "value": "={{ $('Summarize Delivery').item.json.response.finalStatus }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "respond-json",
+      "name": "Respond JSON",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2080,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Campaign": {
+      "main": [
+        [
+          {
+            "node": "Mark Sending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sending": {
+      "main": [
+        [
+          {
+            "node": "Expand Recipients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Recipients": {
+      "main": [
+        [
+          {
+            "node": "Send Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Recipient": {
+      "main": [
+        [
+          {
+            "node": "Summarize Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Delivery": {
+      "main": [
+        [
+          {
+            "node": "Mark Final Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Final Status": {
+      "main": [
+        [
+          {
+            "node": "Respond JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": []
+}

@@ -48,6 +48,13 @@ type WhatsAppWorkspaceState = {
   qr: {
     status: "disconnected" | "pending" | "connected" | "expired" | "failed";
     connected: boolean;
+    disconnectReason:
+      | "linked_device_lost"
+      | "qr_expired"
+      | "provider_error"
+      | "manual_disconnect"
+      | "disconnected"
+      | null;
     codeData: string | null;
     sessionId: string | null;
     deviceInfo: string | null;
@@ -59,6 +66,25 @@ type WhatsAppWorkspaceState = {
     status: "none" | "pending" | "approved";
     phoneNumber: string | null;
     messagingLimit: string | null;
+    metaCloudApi: {
+      wabaId: string | null;
+      phoneNumberId: string | null;
+      appSubscribedAt: string | null;
+      lastProvisioningError: string | null;
+      webhookVerifiedAt: string | null;
+      lastInboundAt: string | null;
+      webhookUrl: string | null;
+    };
+    readiness: {
+      appConfigured: boolean;
+      embeddedSignupLinked: boolean;
+      assetsCaptured: boolean;
+      appSubscribed: boolean;
+      webhookConfigured: boolean;
+      webhookVerified: boolean;
+      canSendViaApi: boolean;
+      missing: string[];
+    };
   };
   webhook: {
     inboundUrl: string | null;
@@ -141,6 +167,13 @@ const apiStatusMeta: Record<
   },
 };
 
+type QrRecoveryState = {
+  tone: "emerald" | "amber" | "red" | "slate";
+  title: string;
+  detail: string;
+  actionLabel: string;
+};
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return "Not available";
@@ -201,6 +234,87 @@ function getQrImageSrc(codeData: string | null) {
   return `data:image/png;base64,${codeData}`;
 }
 
+function getQrRecoveryState(
+  qr: WhatsAppWorkspaceState["qr"] | null | undefined,
+): QrRecoveryState {
+  if (!qr) {
+    return {
+      tone: "slate",
+      title: "No QR session active",
+      detail: "Start a QR handshake to link a phone for this workspace.",
+      actionLabel: "Connect WhatsApp",
+    };
+  }
+
+  if (qr.status === "connected" && qr.connected) {
+    return {
+      tone: "emerald",
+      title: "Session is live",
+      detail:
+        "Messages can flow now, but QR-linked sessions can still expire after idle time or linked-device changes.",
+      actionLabel: "Start fresh QR",
+    };
+  }
+
+  if (qr.status === "pending") {
+    return {
+      tone: "amber",
+      title: "Waiting for phone scan",
+      detail:
+        "Open WhatsApp on the phone, then Linked Devices, and scan this QR before it expires.",
+      actionLabel: "Regenerate QR",
+    };
+  }
+
+  if (qr.status === "expired") {
+    return {
+      tone: "amber",
+      title: "QR expired before linking",
+      detail:
+        "The code timed out before the phone completed the link. Start a fresh QR and scan it immediately.",
+      actionLabel: "Generate fresh QR",
+    };
+  }
+
+  if (qr.disconnectReason === "linked_device_lost") {
+    return {
+      tone: "red",
+      title: "Linked device session was lost",
+      detail:
+        "WhatsApp or the phone invalidated the linked-device session. Reconnect with a fresh QR to restore delivery.",
+      actionLabel: "Reconnect with QR",
+    };
+  }
+
+  if (qr.disconnectReason === "manual_disconnect") {
+    return {
+      tone: "slate",
+      title: "QR session was disconnected manually",
+      detail:
+        "This workspace intentionally cleared the linked-device session. Start a fresh QR whenever you want to reconnect.",
+      actionLabel: "Connect WhatsApp",
+    };
+  }
+
+  if (qr.status === "failed") {
+    return {
+      tone: "red",
+      title: "Provider could not keep the QR session alive",
+      detail:
+        "This usually means Evolution or WhatsApp Web rejected or dropped the session. Starting a fresh QR is the safest recovery path.",
+      actionLabel: "Restart QR session",
+    };
+  }
+
+  return {
+    tone: "slate",
+    title: "QR session is disconnected",
+    detail:
+      "No live QR transport is active. Start a new QR handshake to reconnect this workspace.",
+    actionLabel: "Reconnect WhatsApp",
+  };
+}
+
 const shellPanelClass =
   "border-[#e6e0d6] bg-white text-[#182235] shadow-sm shadow-slate-200/50 dark:border-white/10 dark:bg-[#101826] dark:text-slate-100 dark:shadow-none";
 
@@ -220,6 +334,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     useState<WhatsAppWorkspaceState | null>(null);
   const [messageLogs, setMessageLogs] = useState<WhatsAppMessageLog[]>([]);
   const [isStartingQr, setIsStartingQr] = useState(false);
+  const [isRecoveringQr, setIsRecoveringQr] = useState(false);
   const [isRefreshingQr, setIsRefreshingQr] = useState(false);
   const [isRefreshingMessageLogs, setIsRefreshingMessageLogs] = useState(false);
   const [isDisconnectingQr, setIsDisconnectingQr] = useState(false);
@@ -285,7 +400,12 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             currentState
               ? {
                   ...currentState,
-                  qr: { ...currentState.qr, status: "failed" },
+                  qr: {
+                    ...currentState.qr,
+                    status: "failed",
+                    disconnectReason: "provider_error",
+                    lastError: err?.message || "Could not refresh QR status.",
+                  },
                 }
               : currentState,
           );
@@ -314,6 +434,16 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
     () => getQrImageSrc(qrState?.codeData ?? null),
     [qrState?.codeData],
   );
+  const qrRecoveryState = useMemo(
+    () => getQrRecoveryState(qrState),
+    [qrState],
+  );
+  const canRecoverQr =
+    qrStatus === "failed" ||
+    qrStatus === "expired" ||
+    qrState?.disconnectReason === "linked_device_lost" ||
+    qrState?.disconnectReason === "provider_error" ||
+    qrState?.disconnectReason === "manual_disconnect";
 
   useEffect(() => {
     if (!isQrPreviewOpen) {
@@ -378,6 +508,36 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
       });
     } finally {
       setIsStartingQr(false);
+    }
+  }
+
+  async function handleRecoverQr() {
+    setIsRecoveringQr(true);
+
+    try {
+      const nextState = (await startWhatsAppQrHandshake({
+        forceFresh: true,
+      })) as WhatsAppWorkspaceState;
+      setWorkspaceState(nextState);
+
+      if (nextState.qr.codeData) {
+        setIsQrPreviewOpen(true);
+      }
+
+      toast({
+        title: "Fresh QR recovery started",
+        description: nextState.qr.codeData
+          ? "The stale session was replaced. Scan the new QR from WhatsApp on the phone."
+          : "The stale session was cleared and Evolution is preparing a fresh QR now.",
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not recover QR session",
+        description: err?.message || "Please try again.",
+      });
+    } finally {
+      setIsRecoveringQr(false);
     }
   }
 
@@ -532,11 +692,17 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
               variant="outline"
               size="sm"
               className={cn("gap-1.5", outlineButtonClass)}
-              disabled={isStartingQr || isLoading}
-              onClick={handleStartQrHandshake}
+              disabled={isStartingQr || isRecoveringQr || isLoading}
+              onClick={canRecoverQr ? handleRecoverQr : handleStartQrHandshake}
             >
               <RefreshCw className="h-4 w-4" />
-              Reconnect
+              {isRecoveringQr
+                ? "Recovering QR"
+                : canRecoverQr
+                  ? "Recover QR"
+                  : qrStatus === "connected"
+                    ? "Start fresh QR"
+                    : "Reconnect QR"}
             </Button>
             <Button asChild size="sm" className="gap-1.5">
               <Link to="/whatsapp/setup">
@@ -562,12 +728,12 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                You're approaching QR limits
+                QR mode is a temporary transport
               </p>
               <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
-                QR mode is limited to ~500 messages/day. Upgrade to the Official
-                WhatsApp API to unlock 10,000+ messages, templates, and stable
-                delivery.
+                QR mode is limited to ~500 messages/day and can disconnect after
+                idle time because it relies on a linked-device session. Upgrade
+                to the Official WhatsApp API for stable, durable delivery.
               </p>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -721,6 +887,12 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                         workspaceState?.qr.lastSeen ?? null,
                       ),
                     },
+                    {
+                      label: "Last check",
+                      value: formatDateTime(
+                        workspaceState?.qr.checkedAt ?? null,
+                      ),
+                    },
                   ].map((row) => (
                     <div
                       key={row.label}
@@ -734,6 +906,44 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       </span>
                     </div>
                   ))}
+                  <div
+                    className={cn(
+                      "mt-3 rounded-lg border px-3 py-3",
+                      qrRecoveryState.tone === "emerald" &&
+                        "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-200",
+                      qrRecoveryState.tone === "amber" &&
+                        "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200",
+                      qrRecoveryState.tone === "red" &&
+                        "border-red-200 bg-red-50 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200",
+                      qrRecoveryState.tone === "slate" &&
+                        "border-slate-200 bg-slate-50 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200",
+                    )}
+                  >
+                    <p className="text-xs font-bold uppercase tracking-[0.24em]">
+                      Session health
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {qrRecoveryState.title}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 opacity-90">
+                      {qrRecoveryState.detail}
+                    </p>
+                    {canRecoverQr && (
+                      <Button
+                        size="sm"
+                        className="mt-3 h-8 gap-1.5"
+                        disabled={isRecoveringQr || isStartingQr || isLoading}
+                        onClick={handleRecoverQr}
+                      >
+                        {isRecoveringQr ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        {isRecoveringQr ? "Recovering..." : "Recover QR now"}
+                      </Button>
+                    )}
+                  </div>
                   {/* QR image / status area */}
                   <div
                     className={cn(
@@ -777,13 +987,19 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400">
-                        Generate a QR to link your phone
+                        No active QR image. Start a fresh handshake to link the
+                        phone again.
                       </span>
                     )}
                   </div>
                   {workspaceState?.qr.lastError && (
                     <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300">
-                      {workspaceState.qr.lastError}
+                      <p className="font-semibold uppercase tracking-[0.2em]">
+                        Last provider note
+                      </p>
+                      <p className="mt-1 leading-5">
+                        {workspaceState.qr.lastError}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -792,25 +1008,28 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   <Button
                     size="sm"
                     className="flex-1 gap-1.5 min-w-[120px]"
-                    disabled={isStartingQr || isLoading}
-                    onClick={handleStartQrHandshake}
+                    disabled={isStartingQr || isRecoveringQr || isLoading}
+                    onClick={canRecoverQr ? handleRecoverQr : handleStartQrHandshake}
                   >
-                    {isStartingQr ? (
+                    {isStartingQr || isRecoveringQr ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <QrCode className="h-3.5 w-3.5" />
                     )}
-                    {isStartingQr
-                      ? "Generating..."
-                      : qrStatus === "connected"
-                        ? "Start fresh QR"
-                        : "Connect WhatsApp"}
+                    {isRecoveringQr
+                      ? "Recovering..."
+                      : isStartingQr
+                        ? "Generating..."
+                        : canRecoverQr
+                          ? "Recover QR"
+                          : qrRecoveryState.actionLabel}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     className={cn("gap-1.5", outlineButtonClass)}
                     disabled={
+                      isRecoveringQr ||
                       isRefreshingQr ||
                       isLoading ||
                       !workspaceState?.qr.sessionId
@@ -829,6 +1048,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                     variant="outline"
                     className="border-red-200 text-red-500 hover:bg-red-50 dark:border-red-500/30 dark:hover:bg-red-500/10"
                     disabled={
+                      isRecoveringQr ||
                       isDisconnectingQr ||
                       isLoading ||
                       (!workspaceState?.qr.sessionId &&
@@ -896,6 +1116,14 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       value: workspaceState?.api.phoneNumber || "—",
                     },
                     {
+                      label: "Phone number ID",
+                      value: workspaceState?.api.metaCloudApi.phoneNumberId || "—",
+                    },
+                    {
+                      label: "WABA ID",
+                      value: workspaceState?.api.metaCloudApi.wabaId || "—",
+                    },
+                    {
                       label: "API status",
                       value: apiStatusMeta[apiStatus].label,
                     },
@@ -918,6 +1146,32 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                       </span>
                     </div>
                   ))}
+                  <div className="mt-3 rounded-lg border border-[#f3f4f6] bg-[#f9fafb] p-3 dark:border-white/5 dark:bg-white/5">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Cloud API readiness
+                    </p>
+                    <p className="mt-2 text-xs font-bold text-[#182235] dark:text-white">
+                      {workspaceState?.api.readiness.canSendViaApi
+                        ? "Ready to send via Meta Cloud API"
+                        : "Still missing activation steps"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400 break-all">
+                      Webhook URL:{" "}
+                      {workspaceState?.api.metaCloudApi.webhookUrl ||
+                        "Set WHATSAPP_WEBHOOK_BASE_URL"}
+                    </p>
+                    {workspaceState?.api.metaCloudApi.lastProvisioningError ? (
+                      <p className="mt-2 text-xs leading-5 text-red-600 dark:text-red-300">
+                        Provisioning issue:{" "}
+                        {workspaceState.api.metaCloudApi.lastProvisioningError}
+                      </p>
+                    ) : null}
+                    {workspaceState?.api.readiness.missing.length ? (
+                      <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                        Missing: {workspaceState.api.readiness.missing.join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
                 {/* Footer */}
                 <div className="flex flex-wrap gap-2 border-t border-[#f3f4f6] px-5 py-3 dark:border-white/10">
@@ -1116,7 +1370,7 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   Send Test Message
                 </p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Verify outbound delivery through the linked QR instance
+                  Verify outbound delivery through the active transport for this workspace
                 </p>
               </div>
               <div className="space-y-4 px-5 py-4">
@@ -1156,7 +1410,10 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   className="w-full gap-1.5"
                   disabled={
                     isSendingTestMessage ||
-                    !workspaceState?.qr.connected ||
+                    !(
+                      workspaceState?.qr.connected ||
+                      workspaceState?.api.readiness.canSendViaApi
+                    ) ||
                     !testPhoneNumber.trim() ||
                     !testMessage.trim()
                   }
@@ -1200,8 +1457,13 @@ export default function WhatsAppPage({ user }: { user: AuthUser }) {
                   },
                   {
                     label: "API Mode",
-                    status: apiStatus === "approved" ? "Active" : "Not Setup",
-                    ok: apiStatus === "approved",
+                    status:
+                      apiStatus === "approved"
+                        ? "Active"
+                        : workspaceState?.api.readiness.missing.length
+                          ? "Needs setup"
+                          : "Pending",
+                    ok: workspaceState?.api.readiness.canSendViaApi ?? false,
                   },
                   {
                     label: "AI Engine",

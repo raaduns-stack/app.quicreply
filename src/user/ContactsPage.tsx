@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { type AuthUser } from "wasp/auth";
 import {
+  deleteManyContacts as deleteManyContactsOperation,
   createContact as createContactOperation,
   deleteContact as deleteContactOperation,
   getContacts,
@@ -912,6 +913,7 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
   const [draft, setDraft] = useState<DraftContact>(EMPTY_DRAFT);
   const [draftError, setDraftError] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [messagingContact, setMessagingContact] = useState<Contact | null>(null);
@@ -993,6 +995,21 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
   // Selection
   const allPageSelected =
     pageContacts.length > 0 && pageContacts.every((c) => selectedIds.has(c.id));
+  const selectedCount = selectedIds.size;
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const validIds = new Set(contacts.map((contact) => contact.id));
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        }
+      });
+      return next;
+    });
+  }, [contacts]);
+
   function toggleAll(checked: boolean) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -1094,6 +1111,35 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
       toast({
         variant: "destructive",
         title: "Could not delete contact",
+        description: err?.message || "Please try again.",
+      });
+    }
+  }
+
+  async function confirmBulkDelete() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      return;
+    }
+
+    try {
+      const result = (await deleteManyContactsOperation({
+        ids,
+      })) as { deletedIds: string[] };
+      const deletedIds = new Set(result.deletedIds);
+      setSelectedIds(new Set());
+      toast({
+        title:
+          deletedIds.size === 1
+            ? "1 contact deleted"
+            : `${deletedIds.size} contacts deleted`,
+      });
+      setBulkDeleteOpen(false);
+      await contactsQuery.refetch?.();
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not delete contacts",
         description: err?.message || "Please try again.",
       });
     }
@@ -1389,6 +1435,16 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
             <Button size="sm" className="gap-1.5" onClick={openAdd}>
               <Plus className="h-4 w-4" /> Add Contact
             </Button>
+            {selectedCount > 0 ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                <Trash2 className="h-4 w-4" /> Delete Selected ({selectedCount})
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -1621,6 +1677,25 @@ export default function ContactsPage({ user }: { user: AuthUser }) {
         onClose={() => setDeleteOpen(false)}
         onConfirm={confirmDelete}
       />
+      <Dialog open={bulkDeleteOpen} onOpenChange={(v) => !v && setBulkDeleteOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete selected contacts?</DialogTitle>
+            <DialogDescription>
+              This will delete {selectedCount} selected contact{selectedCount === 1 ? "" : "s"} and
+              remove them from draft or failed campaign audiences.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-3 sm:flex-row">
+            <Button variant="outline" className="flex-1" onClick={() => setBulkDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" className="flex-1" onClick={confirmBulkDelete}>
+              Delete selected
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <SendMessageModal
         open={messageOpen}
         contact={messagingContact}

@@ -59,6 +59,13 @@ type WhatsAppWorkspaceState = {
   qr: {
     status: "disconnected" | "pending" | "connected" | "expired" | "failed";
     connected: boolean;
+    disconnectReason:
+      | "linked_device_lost"
+      | "qr_expired"
+      | "provider_error"
+      | "manual_disconnect"
+      | "disconnected"
+      | null;
   };
   api: {
     status: "none" | "pending" | "approved";
@@ -123,6 +130,36 @@ function statusTone(active: boolean) {
   return active
     ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-400/20"
     : "bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-white/10 dark:text-slate-300 dark:ring-white/10";
+}
+
+function getQrOverviewDetail(workspace: WhatsAppWorkspaceState | undefined) {
+  if (workspace?.qr.connected) {
+    return `Connected · ${workspace.whatsappMode.toUpperCase()} mode`;
+  }
+
+  if (workspace?.qr.disconnectReason === "linked_device_lost") {
+    return "Linked-device session was lost. Reconnect with a fresh QR.";
+  }
+
+  if (
+    workspace?.qr.disconnectReason === "qr_expired" ||
+    workspace?.qr.status === "expired"
+  ) {
+    return "The last QR expired before linking completed.";
+  }
+
+  if (
+    workspace?.qr.disconnectReason === "provider_error" ||
+    workspace?.qr.status === "failed"
+  ) {
+    return "Provider could not keep the QR session alive.";
+  }
+
+  if (workspace?.qr.status === "pending") {
+    return "Waiting for QR scan to complete the link.";
+  }
+
+  return "Disconnected or waiting for QR connection";
 }
 
 export default function AiOverviewPage({ user }: { user: AuthUser }) {
@@ -228,6 +265,11 @@ export default function AiOverviewPage({ user }: { user: AuthUser }) {
     href: string;
     cta: string;
   }>;
+  const showQrRecoveryNotice =
+    !workspace?.qr.connected &&
+    (workspace?.qr.disconnectReason === "linked_device_lost" ||
+      workspace?.qr.disconnectReason === "provider_error" ||
+      workspace?.qr.disconnectReason === "qr_expired");
 
   return (
     <UserLayout user={user}>
@@ -276,6 +318,31 @@ export default function AiOverviewPage({ user }: { user: AuthUser }) {
           </div>
         ) : (
           <>
+            {showQrRecoveryNotice && (
+              <section className={cn(shellCardClass, "border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10")}>
+                <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-500/10 dark:text-red-300">
+                    <Wifi className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-red-800 dark:text-red-200">
+                      {workspace?.qr.disconnectReason === "linked_device_lost"
+                        ? "WhatsApp QR session was lost"
+                        : workspace?.qr.disconnectReason === "qr_expired"
+                          ? "WhatsApp QR expired before linking"
+                          : "WhatsApp QR needs recovery"}
+                    </p>
+                    <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                      Jennifer automation depends on a live WhatsApp session. Recover the QR now or move this workspace to Official API.
+                    </p>
+                  </div>
+                  <Button asChild size="sm">
+                    <Link to="/whatsapp">Recover QR</Link>
+                  </Button>
+                </div>
+              </section>
+            )}
+
             <section className={cn(shellCardClass, "overflow-hidden")}>
               <div className="flex flex-wrap items-center justify-between gap-6 px-6 py-6">
                 <div className="flex min-w-0 items-center gap-4">
@@ -434,9 +501,7 @@ export default function AiOverviewPage({ user }: { user: AuthUser }) {
                           WhatsApp Session
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {workspace?.qr.connected
-                            ? `Connected · ${workspace.whatsappMode.toUpperCase()} mode`
-                            : "Disconnected or waiting for QR connection"}
+                          {getQrOverviewDetail(workspace)}
                         </p>
                       </div>
                       <span

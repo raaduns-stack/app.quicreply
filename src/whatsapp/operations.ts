@@ -1,16 +1,17 @@
-import { HttpError, prisma } from "wasp/server";
+import { HttpError, env, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
+import { subscribeMetaAppToWaba } from "./metaCloudApi";
 import {
   cleanupStaleEvolutionInstancesForOrganization,
   disconnectWhatsAppQrSession,
   fetchWhatsAppMessageLogs,
   refreshWhatsAppQrSessionStatus,
-  sendWhatsAppTestMessage as sendWhatsAppTestMessageThroughProvider,
   startWhatsAppQrSession,
   type WhatsAppMessageLog,
   type WhatsAppQrStatus,
 } from "./provider";
+import { sendOrganizationWhatsAppTextMessage } from "./transport";
 
 const organizationSelect = {
   id: true,
@@ -70,6 +71,13 @@ export type WhatsAppWorkspaceState = {
   qr: {
     status: WhatsAppQrStatus;
     connected: boolean;
+    disconnectReason:
+      | "linked_device_lost"
+      | "qr_expired"
+      | "provider_error"
+      | "manual_disconnect"
+      | "disconnected"
+      | null;
     codeData: string | null;
     sessionId: string | null;
     deviceInfo: string | null;
@@ -81,6 +89,44 @@ export type WhatsAppWorkspaceState = {
     status: "none" | "pending" | "approved";
     phoneNumber: string | null;
     messagingLimit: string | null;
+    metaCloudApi: {
+      wabaId: string | null;
+      phoneNumberId: string | null;
+      appSubscribedAt: string | null;
+      lastProvisioningError: string | null;
+      webhookVerifiedAt: string | null;
+      lastInboundAt: string | null;
+      webhookUrl: string | null;
+    };
+    readiness: {
+      appConfigured: boolean;
+      embeddedSignupLinked: boolean;
+      assetsCaptured: boolean;
+      appSubscribed: boolean;
+      webhookConfigured: boolean;
+      webhookVerified: boolean;
+      canSendViaApi: boolean;
+      missing: string[];
+    };
+    embeddedSignup: {
+      status:
+        | "not_started"
+        | "session_prepared"
+        | "assets_captured"
+        | "linked"
+        | "failed";
+      sessionId: string | null;
+      state: string | null;
+      appId: string | null;
+      configurationId: string | null;
+      businessPortfolioId: string | null;
+      wabaId: string | null;
+      phoneNumberId: string | null;
+      lastError: string | null;
+      startedAt: string | null;
+      authorizationCodeReceivedAt: string | null;
+      completedAt: string | null;
+    };
     setupRequest: {
       legalName: string | null;
       registrationNumber: string | null;
@@ -91,9 +137,11 @@ export type WhatsAppWorkspaceState = {
       country: string | null;
       address: string | null;
       businessManagerId: string | null;
+      businessPortfolioId: string | null;
       metaBusinessName: string | null;
       displayName: string | null;
       wabaId: string | null;
+      phoneNumberId: string | null;
       apiPhoneNumber: string | null;
       dailyVolume: string | null;
       useCase: string | null;
@@ -130,9 +178,11 @@ const completeOfficialApiSetupArgsSchema = z.object({
   country: z.string().trim().max(120).optional(),
   address: z.string().trim().max(500).optional(),
   businessManagerId: z.string().trim().max(160).optional(),
+  businessPortfolioId: z.string().trim().max(160).optional(),
   metaBusinessName: z.string().trim().max(160).optional(),
   displayName: z.string().trim().max(160).optional(),
   wabaId: z.string().trim().max(160).optional(),
+  phoneNumberId: z.string().trim().max(160).optional(),
   dailyVolume: z.string().trim().max(120).optional(),
   useCase: z.string().trim().max(1000).optional(),
   templateExample: z.string().trim().max(1000).optional(),
@@ -148,6 +198,27 @@ const sendWhatsAppTestMessageArgsSchema = z.object({
 const updateWhatsAppWebhookSettingsArgsSchema = z.object({
   inboundUrl: z.string().trim().max(2000).optional(),
   enabled: z.boolean(),
+});
+
+const saveOfficialApiEmbeddedSignupAssetsArgsSchema = z.object({
+  businessPortfolioId: z.string().trim().max(160).optional(),
+  businessManagerId: z.string().trim().max(160).optional(),
+  metaBusinessName: z.string().trim().max(160).optional(),
+  displayName: z.string().trim().max(160).optional(),
+  wabaId: z.string().trim().max(160).optional(),
+  phoneNumberId: z.string().trim().max(160).optional(),
+  apiPhoneNumber: z.string().trim().optional(),
+});
+
+const completeOfficialApiEmbeddedSignupSessionArgsSchema = z.object({
+  code: z.string().trim().min(1),
+  businessPortfolioId: z.string().trim().max(160).optional(),
+  businessManagerId: z.string().trim().max(160).optional(),
+  metaBusinessName: z.string().trim().max(160).optional(),
+  displayName: z.string().trim().max(160).optional(),
+  wabaId: z.string().trim().max(160).optional(),
+  phoneNumberId: z.string().trim().max(160).optional(),
+  apiPhoneNumber: z.string().trim().optional(),
 });
 
 function ensureUserId(context: any) {
@@ -221,6 +292,76 @@ function getWebhookSettings(settings: unknown) {
   };
 }
 
+function getQrDisconnectReason(settings: unknown) {
+  const value = normalizeSettings(settings).whatsappQrDisconnectReason;
+
+  return value === "linked_device_lost" ||
+    value === "qr_expired" ||
+    value === "provider_error" ||
+    value === "manual_disconnect" ||
+    value === "disconnected"
+    ? value
+    : null;
+}
+
+type QrDisconnectReason = NonNullable<
+  WhatsAppWorkspaceState["qr"]["disconnectReason"]
+>;
+
+function mergeQrDisconnectReason(
+  settings: unknown,
+  reason: QrDisconnectReason | null,
+) {
+  const nextSettings = normalizeSettings(settings);
+
+  if (reason) {
+    nextSettings.whatsappQrDisconnectReason = reason;
+  } else {
+    delete nextSettings.whatsappQrDisconnectReason;
+  }
+
+  return nextSettings;
+}
+
+function logQrStateTransition(input: {
+  organizationId: string;
+  instanceName?: string | null;
+  source:
+    | "start_handshake"
+    | "refresh_status"
+    | "provider_failure"
+    | "manual_disconnect";
+  previousStatus: string | null | undefined;
+  nextStatus: string | null | undefined;
+  previousReason: QrDisconnectReason | null;
+  nextReason: QrDisconnectReason | null;
+  previousConnected: boolean;
+  nextConnected: boolean;
+  providerMessage?: string | null;
+}) {
+  const statusChanged = input.previousStatus !== input.nextStatus;
+  const reasonChanged = input.previousReason !== input.nextReason;
+  const connectedChanged = input.previousConnected !== input.nextConnected;
+  const hasProviderMessage = Boolean(input.providerMessage);
+
+  if (!statusChanged && !reasonChanged && !connectedChanged && !hasProviderMessage) {
+    return;
+  }
+
+  console.info("WhatsApp QR state transition.", {
+    organizationId: input.organizationId,
+    instanceName: input.instanceName ?? null,
+    source: input.source,
+    previousStatus: input.previousStatus ?? null,
+    nextStatus: input.nextStatus ?? null,
+    previousReason: input.previousReason,
+    nextReason: input.nextReason,
+    previousConnected: input.previousConnected,
+    nextConnected: input.nextConnected,
+    providerMessage: input.providerMessage ?? null,
+  });
+}
+
 function mergeWebhookSettings(
   settings: unknown,
   args: z.infer<typeof updateWhatsAppWebhookSettingsArgsSchema>,
@@ -251,9 +392,11 @@ function mergeApiSetupRequestSettings(
     country: args.country?.trim() || null,
     address: args.address?.trim() || null,
     businessManagerId: args.businessManagerId?.trim() || null,
+    businessPortfolioId: args.businessPortfolioId?.trim() || null,
     metaBusinessName: args.metaBusinessName?.trim() || null,
     displayName: args.displayName?.trim() || null,
     wabaId: args.wabaId?.trim() || null,
+    phoneNumberId: args.phoneNumberId?.trim() || null,
     apiPhoneNumber: args.apiPhoneNumber?.trim() || null,
     dailyVolume: args.dailyVolume?.trim() || null,
     useCase: args.useCase?.trim() || null,
@@ -294,9 +437,11 @@ function getApiSetupRequestSettings(settings: unknown) {
     country: getString("country"),
     address: getString("address"),
     businessManagerId: getString("businessManagerId"),
+    businessPortfolioId: getString("businessPortfolioId"),
     metaBusinessName: getString("metaBusinessName"),
     displayName: getString("displayName"),
     wabaId: getString("wabaId"),
+    phoneNumberId: getString("phoneNumberId"),
     apiPhoneNumber: getString("apiPhoneNumber"),
     dailyVolume: getString("dailyVolume"),
     useCase: getString("useCase"),
@@ -308,6 +453,205 @@ function getApiSetupRequestSettings(settings: unknown) {
       : [],
     metaAuthorizationRequested: record.metaAuthorizationRequested === true,
     submittedAt: getString("submittedAt"),
+  };
+}
+
+function getEmbeddedSignupSettings(settings: unknown) {
+  const embeddedSignup = normalizeSettings(settings).whatsappEmbeddedSignup;
+  const record =
+    embeddedSignup &&
+    typeof embeddedSignup === "object" &&
+    !Array.isArray(embeddedSignup)
+      ? (embeddedSignup as Record<string, unknown>)
+      : null;
+
+  if (!record) {
+    return null;
+  }
+
+  const getString = (key: string) =>
+    typeof record[key] === "string" && record[key].trim()
+      ? record[key].trim()
+      : null;
+
+  const rawStatus = getString("status");
+  const status: WhatsAppWorkspaceState["api"]["embeddedSignup"]["status"] =
+    rawStatus === "session_prepared" ||
+    rawStatus === "assets_captured" ||
+    rawStatus === "linked" ||
+    rawStatus === "failed"
+      ? rawStatus
+      : "not_started";
+
+  return {
+    status,
+    sessionId: getString("sessionId"),
+    state: getString("state"),
+    appId: getString("appId"),
+    configurationId: getString("configurationId"),
+    businessPortfolioId: getString("businessPortfolioId"),
+    wabaId: getString("wabaId"),
+    phoneNumberId: getString("phoneNumberId"),
+    lastError: getString("lastError"),
+    startedAt: getString("startedAt"),
+    authorizationCodeReceivedAt: getString("authorizationCodeReceivedAt"),
+    completedAt: getString("completedAt"),
+  };
+}
+
+function mergeEmbeddedSignupSettings(
+  settings: unknown,
+  args: {
+    status?:
+      | "not_started"
+      | "session_prepared"
+      | "assets_captured"
+      | "linked"
+      | "failed";
+    sessionId?: string | null;
+    state?: string | null;
+    appId?: string | null;
+    configurationId?: string | null;
+    businessPortfolioId?: string | null;
+    wabaId?: string | null;
+    phoneNumberId?: string | null;
+    lastError?: string | null;
+    startedAt?: string | null;
+    authorizationCodeReceivedAt?: string | null;
+    completedAt?: string | null;
+  },
+) {
+  const nextSettings = normalizeSettings(settings);
+  const current = getEmbeddedSignupSettings(settings);
+
+  nextSettings.whatsappEmbeddedSignup = {
+    status: args.status ?? current?.status ?? "not_started",
+    sessionId: args.sessionId ?? current?.sessionId ?? null,
+    state: args.state ?? current?.state ?? null,
+    appId: args.appId ?? current?.appId ?? null,
+    configurationId: args.configurationId ?? current?.configurationId ?? null,
+    businessPortfolioId:
+      args.businessPortfolioId ?? current?.businessPortfolioId ?? null,
+    wabaId: args.wabaId ?? current?.wabaId ?? null,
+    phoneNumberId: args.phoneNumberId ?? current?.phoneNumberId ?? null,
+    lastError: args.lastError ?? current?.lastError ?? null,
+    startedAt: args.startedAt ?? current?.startedAt ?? null,
+    authorizationCodeReceivedAt:
+      args.authorizationCodeReceivedAt ??
+      current?.authorizationCodeReceivedAt ??
+      null,
+    completedAt: args.completedAt ?? current?.completedAt ?? null,
+  };
+
+  return nextSettings;
+}
+
+function getMetaCloudApiSettings(settings: unknown) {
+  const metaCloudApi = normalizeSettings(settings).whatsappMetaCloudApi;
+  const record =
+    metaCloudApi &&
+    typeof metaCloudApi === "object" &&
+    !Array.isArray(metaCloudApi)
+      ? (metaCloudApi as Record<string, unknown>)
+      : null;
+
+  if (!record) {
+    return null;
+  }
+
+  const getString = (key: string) =>
+    typeof record[key] === "string" && record[key].trim()
+      ? record[key].trim()
+      : null;
+
+  return {
+    wabaId: getString("wabaId"),
+    phoneNumberId: getString("phoneNumberId"),
+    appSubscribedAt: getString("appSubscribedAt"),
+    lastProvisioningError: getString("lastProvisioningError"),
+    webhookVerifiedAt: getString("webhookVerifiedAt"),
+    lastInboundAt: getString("lastInboundAt"),
+  };
+}
+
+function mergeMetaCloudApiSettings(
+  settings: unknown,
+  args: {
+    wabaId?: string | null;
+    phoneNumberId?: string | null;
+    appSubscribedAt?: string | null;
+    lastProvisioningError?: string | null;
+    webhookVerifiedAt?: string | null;
+    lastInboundAt?: string | null;
+  },
+) {
+  const nextSettings = normalizeSettings(settings);
+  const current = getMetaCloudApiSettings(settings);
+
+  nextSettings.whatsappMetaCloudApi = {
+    wabaId: args.wabaId ?? current?.wabaId ?? null,
+    phoneNumberId: args.phoneNumberId ?? current?.phoneNumberId ?? null,
+    appSubscribedAt: args.appSubscribedAt ?? current?.appSubscribedAt ?? null,
+    lastProvisioningError:
+      args.lastProvisioningError ?? current?.lastProvisioningError ?? null,
+    webhookVerifiedAt:
+      args.webhookVerifiedAt ?? current?.webhookVerifiedAt ?? null,
+    lastInboundAt: args.lastInboundAt ?? current?.lastInboundAt ?? null,
+  };
+
+  return nextSettings;
+}
+
+function getMetaWebhookUrl() {
+  const baseUrl = env.WHATSAPP_WEBHOOK_BASE_URL?.trim().replace(/\/+$/, "");
+  return baseUrl ? `${baseUrl}/webhooks/meta/whatsapp` : null;
+}
+
+function getMetaCloudApiReadiness(input: {
+  apiStatus: "none" | "pending" | "approved";
+  embeddedSignup: WhatsAppWorkspaceState["api"]["embeddedSignup"];
+  metaCloudApi: WhatsAppWorkspaceState["api"]["metaCloudApi"];
+}) {
+  const appConfigured =
+    Boolean(input.embeddedSignup.appId) &&
+    Boolean(input.embeddedSignup.configurationId);
+  const embeddedSignupLinked = input.embeddedSignup.status === "linked";
+  const assetsCaptured =
+    Boolean(input.metaCloudApi.wabaId) && Boolean(input.metaCloudApi.phoneNumberId);
+  const appSubscribed = Boolean(input.metaCloudApi.appSubscribedAt);
+  const webhookConfigured = Boolean(input.metaCloudApi.webhookUrl);
+  const webhookVerified = Boolean(input.metaCloudApi.webhookVerifiedAt);
+  const canSendViaApi = input.apiStatus === "approved" && assetsCaptured && appSubscribed;
+  const missing: string[] = [];
+
+  if (!appConfigured) {
+    missing.push("Meta app ID / config ID");
+  }
+  if (!embeddedSignupLinked) {
+    missing.push("Embedded Signup link");
+  }
+  if (!assetsCaptured) {
+    missing.push("WABA ID / phone number ID");
+  }
+  if (!appSubscribed) {
+    missing.push("WABA app subscription");
+  }
+  if (!webhookConfigured) {
+    missing.push("Webhook base URL");
+  }
+  if (webhookConfigured && !webhookVerified) {
+    missing.push("Meta webhook verification");
+  }
+
+  return {
+    appConfigured,
+    embeddedSignupLinked,
+    assetsCaptured,
+    appSubscribed,
+    webhookConfigured,
+    webhookVerified,
+    canSendViaApi,
+    missing,
   };
 }
 
@@ -372,6 +716,33 @@ async function toWorkspaceState(
       (organization?.qrConnected ? "connected" : "disconnected"),
   );
   const metrics = await getWhatsAppMetrics(organization?.id ?? null);
+  const apiStatus = normalizeApiStatus(organization?.apiStatus);
+  const embeddedSignup =
+    getEmbeddedSignupSettings(organization?.settings) ?? {
+      status: "not_started",
+      sessionId: null,
+      state: null,
+      appId: null,
+      configurationId: null,
+      businessPortfolioId: null,
+      wabaId: null,
+      phoneNumberId: null,
+      lastError: null,
+      startedAt: null,
+      authorizationCodeReceivedAt: null,
+      completedAt: null,
+    };
+  const metaCloudApi: WhatsAppWorkspaceState["api"]["metaCloudApi"] = {
+    ...(getMetaCloudApiSettings(organization?.settings) ?? {
+      wabaId: null,
+      phoneNumberId: null,
+      appSubscribedAt: null,
+      lastProvisioningError: null,
+      webhookVerifiedAt: null,
+      lastInboundAt: null,
+    }),
+    webhookUrl: getMetaWebhookUrl(),
+  };
 
   return {
     whatsappMode: normalizeWhatsAppMode(organization?.whatsappMode),
@@ -383,6 +754,13 @@ async function toWorkspaceState(
     qr: {
       status: qrStatus,
       connected: organization?.qrConnected ?? false,
+      disconnectReason:
+        qrStatus === "connected" || qrStatus === "pending"
+          ? null
+          : qrStatus === "expired"
+            ? "qr_expired"
+            : getQrDisconnectReason(organization?.settings) ??
+              (qrStatus === "failed" ? "provider_error" : "disconnected"),
       codeData:
         qrStatus === "connected" || qrStatus === "expired"
           ? null
@@ -394,9 +772,16 @@ async function toWorkspaceState(
       lastError: organization?.qrLastError ?? null,
     },
     api: {
-      status: normalizeApiStatus(organization?.apiStatus),
+      status: apiStatus,
       phoneNumber: organization?.apiPhoneNumber ?? null,
       messagingLimit: organization?.apiMessagingLimit ?? null,
+      metaCloudApi,
+      readiness: getMetaCloudApiReadiness({
+        apiStatus,
+        embeddedSignup,
+        metaCloudApi,
+      }),
+      embeddedSignup,
       setupRequest: getApiSetupRequestSettings(organization?.settings),
     },
     webhook: getWebhookSettings(organization?.settings),
@@ -475,7 +860,8 @@ async function markQrProviderFailure(
   organization: OrganizationRecord,
   message: string,
 ) {
-  return upsertOrganization(userId, {
+  const nextReason: QrDisconnectReason = "provider_error";
+  const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode: organization.apiStatus === "approved" ? "both" : "qr",
     qrConnected: false,
     qrStatus: "failed",
@@ -488,7 +874,27 @@ async function markQrProviderFailure(
     evolutionInstanceName: organization.evolutionInstanceName ?? undefined,
     evolutionInstanceId: organization.evolutionInstanceId ?? undefined,
     qrLastError: message,
+    settings: mergeQrDisconnectReason(
+      organization.settings,
+      nextReason,
+    ),
   });
+
+  logQrStateTransition({
+    organizationId: organization.id,
+    instanceName:
+      organization.qrSessionId ?? organization.evolutionInstanceName ?? null,
+    source: "provider_failure",
+    previousStatus: organization.qrStatus,
+    nextStatus: updatedOrganization.qrStatus,
+    previousReason: getQrDisconnectReason(organization.settings),
+    nextReason,
+    previousConnected: organization.qrConnected,
+    nextConnected: updatedOrganization.qrConnected,
+    providerMessage: message,
+  });
+
+  return updatedOrganization;
 }
 
 async function cleanupStaleEvolutionInstancesForOrg(
@@ -656,6 +1062,32 @@ export const startWhatsAppQrHandshake = async (
       qrResponse.apiMessagingLimit ??
       organization?.apiMessagingLimit ??
       undefined,
+    settings: mergeQrDisconnectReason(
+      organization.settings,
+      qrResponse.qrStatus === "connected"
+        ? null
+        : qrResponse.qrStatus === "expired"
+          ? "qr_expired"
+          : qrResponse.qrStatus === "failed"
+            ? "provider_error"
+          : null,
+    ),
+  });
+
+  logQrStateTransition({
+    organizationId: organization.id,
+    instanceName:
+      updatedOrganization.qrSessionId ??
+      updatedOrganization.evolutionInstanceName ??
+      instanceName,
+    source: "start_handshake",
+    previousStatus: organization.qrStatus,
+    nextStatus: updatedOrganization.qrStatus,
+    previousReason: getQrDisconnectReason(organization.settings),
+    nextReason: getQrDisconnectReason(updatedOrganization.settings),
+    previousConnected: organization.qrConnected,
+    nextConnected: updatedOrganization.qrConnected,
+    providerMessage: qrResponse.errorMessage ?? null,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -715,6 +1147,34 @@ export const refreshWhatsAppQrStatus = async (
     apiPhoneNumber: qrResponse.apiPhoneNumber ?? organization.apiPhoneNumber,
     apiMessagingLimit:
       qrResponse.apiMessagingLimit ?? organization.apiMessagingLimit,
+    settings: mergeQrDisconnectReason(
+      organization.settings,
+      isConnected
+        ? null
+        : nextQrStatus === "expired"
+          ? "qr_expired"
+          : disconnectedByProvider
+            ? "linked_device_lost"
+            : nextQrStatus === "failed"
+              ? "provider_error"
+              : "disconnected",
+    ),
+  });
+
+  logQrStateTransition({
+    organizationId: organization.id,
+    instanceName:
+      updatedOrganization.qrSessionId ??
+      updatedOrganization.evolutionInstanceName ??
+      instanceName,
+    source: "refresh_status",
+    previousStatus: organization.qrStatus,
+    nextStatus: updatedOrganization.qrStatus,
+    previousReason: getQrDisconnectReason(organization.settings),
+    nextReason: getQrDisconnectReason(updatedOrganization.settings),
+    previousConnected: organization.qrConnected,
+    nextConnected: updatedOrganization.qrConnected,
+    providerMessage: updatedOrganization.qrLastError,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -747,35 +1207,37 @@ export const sendWhatsAppTestMessage = async (
     rawArgs,
   );
   const organization = await findOrganization(userId);
-  const instanceName = getConnectedInstanceName(organization);
-
-  if (!instanceName) {
-    throw new HttpError(400, "Connect QR before sending a test message.");
+  if (!organization) {
+    throw new HttpError(404, "Organization not found.");
   }
 
-  const result = await sendWhatsAppTestMessageThroughProvider({
-    instanceName,
+  const send = await sendOrganizationWhatsAppTextMessage({
+    organization,
     phoneNumber: args.phoneNumber,
     message: args.message,
   });
 
   await prisma.whatsAppMessageLog.create({
     data: {
-      organizationId: organization!.id,
-      instanceName,
+      organizationId: organization.id,
+      instanceName: send.instanceName,
       direction: "outbound",
       to: args.phoneNumber,
       messageType: "conversation",
       text: args.message,
-      status: result.status ?? "SENT",
+      status: send.result.status ?? "SENT",
       source: "app",
       providerEvent: "test_message",
-      providerMessageId: result.providerMessageId,
-      rawPayload: result.rawResponse as any,
+      providerMessageId: send.result.providerMessageId,
+      rawPayload: {
+        provider: send.provider,
+        phoneNumberId: send.phoneNumberId,
+        providerResponse: send.result.rawResponse,
+      } as any,
     },
   });
 
-  return result;
+  return { success: true };
 };
 
 export const updateWhatsAppWebhookSettings = async (
@@ -831,6 +1293,7 @@ export const disconnectWhatsAppQr = async (
 
   const nextMode =
     normalizeApiStatus(organization.apiStatus) === "approved" ? "api" : "qr";
+  const nextReason: QrDisconnectReason = "manual_disconnect";
 
   const updatedOrganization = await upsertOrganization(userId, {
     whatsappMode: nextMode,
@@ -844,16 +1307,31 @@ export const disconnectWhatsAppQr = async (
     evolutionInstanceName: null,
     evolutionInstanceId: null,
     qrLastError: null,
-    settings: disconnectErrorMessage
-      ? {
-          ...normalizeSettings(organization.settings),
-          whatsappQrProviderWarning: {
-            message: disconnectErrorMessage,
-            instanceName,
-            occurredAt: new Date().toISOString(),
-          },
-        }
-      : organization.settings,
+    settings: {
+      ...mergeQrDisconnectReason(organization.settings, nextReason),
+      ...(disconnectErrorMessage
+        ? {
+            whatsappQrProviderWarning: {
+              message: disconnectErrorMessage,
+              instanceName,
+              occurredAt: new Date().toISOString(),
+            },
+          }
+        : {}),
+    },
+  });
+
+  logQrStateTransition({
+    organizationId: organization.id,
+    instanceName,
+    source: "manual_disconnect",
+    previousStatus: organization.qrStatus,
+    nextStatus: updatedOrganization.qrStatus,
+    previousReason: getQrDisconnectReason(organization.settings),
+    nextReason,
+    previousConnected: organization.qrConnected,
+    nextConnected: updatedOrganization.qrConnected,
+    providerMessage: disconnectErrorMessage,
   });
 
   return toWorkspaceState(updatedOrganization);
@@ -906,4 +1384,155 @@ export const completeOfficialApiSetup = async (
   });
 
   return { success: true };
+};
+
+export const beginOfficialApiEmbeddedSignup = async (
+  _rawArgs: unknown,
+  context: any,
+): Promise<WhatsAppWorkspaceState> => {
+  const userId = ensureUserId(context);
+  const organization = await ensureOrganizationForUser(userId);
+  const sessionId = crypto.randomUUID();
+  const state = crypto.randomUUID();
+  const appId = process.env.META_WHATSAPP_APP_ID?.trim() || null;
+  const configurationId =
+    process.env.META_WHATSAPP_CONFIG_ID?.trim() || null;
+  const configurationError =
+    !appId || !configurationId
+      ? "Meta Embedded Signup is not configured yet. Set META_WHATSAPP_APP_ID and META_WHATSAPP_CONFIG_ID before launching the live flow."
+      : null;
+
+  const updatedOrganization = await upsertOrganization(userId, {
+    settings: mergeEmbeddedSignupSettings(organization.settings, {
+      status: configurationError ? "failed" : "session_prepared",
+      sessionId,
+      state,
+      appId,
+      configurationId,
+      lastError: configurationError,
+      startedAt: new Date().toISOString(),
+      authorizationCodeReceivedAt: null,
+      completedAt: null,
+    }),
+  });
+
+  return toWorkspaceState(updatedOrganization);
+};
+
+export const saveOfficialApiEmbeddedSignupAssets = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<WhatsAppWorkspaceState> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    saveOfficialApiEmbeddedSignupAssetsArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+  const nextSettings = mergeEmbeddedSignupSettings(organization.settings, {
+    status: "assets_captured",
+    businessPortfolioId:
+      args.businessPortfolioId?.trim() ||
+      args.businessManagerId?.trim() ||
+      null,
+    wabaId: args.wabaId?.trim() || null,
+    phoneNumberId: args.phoneNumberId?.trim() || null,
+    lastError: null,
+    completedAt: new Date().toISOString(),
+  });
+
+  const updatedOrganization = await upsertOrganization(userId, {
+    apiPhoneNumber: args.apiPhoneNumber?.trim() || organization.apiPhoneNumber,
+    settings: mergeApiSetupRequestSettings(nextSettings, {
+      businessManagerId: args.businessManagerId,
+      businessPortfolioId:
+        args.businessPortfolioId || args.businessManagerId || undefined,
+      metaBusinessName: args.metaBusinessName,
+      displayName: args.displayName,
+      wabaId: args.wabaId,
+      phoneNumberId: args.phoneNumberId,
+      apiPhoneNumber: args.apiPhoneNumber,
+    }),
+  });
+
+  return toWorkspaceState(updatedOrganization);
+};
+
+export const completeOfficialApiEmbeddedSignupSession = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<WhatsAppWorkspaceState> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    completeOfficialApiEmbeddedSignupSessionArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+  const completedAt = new Date().toISOString();
+  const receivedAt = new Date().toISOString();
+  let provisioningError: string | null = null;
+  let nextApiStatus: "pending" | "approved" = "pending";
+  let nextWhatsappMode = organization.whatsappMode ?? "qr";
+
+  if (!args.wabaId?.trim() || !args.phoneNumberId?.trim()) {
+    provisioningError =
+      "Embedded Signup returned without the WABA ID or phone number ID required for Cloud API activation.";
+  } else {
+    try {
+      await subscribeMetaAppToWaba({
+        wabaId: args.wabaId.trim(),
+      });
+      nextApiStatus = "approved";
+      nextWhatsappMode = organization.qrConnected ? "both" : "api";
+    } catch (error) {
+      provisioningError =
+        error instanceof Error && error.message
+          ? error.message
+          : "Meta app subscription failed after Embedded Signup linked the workspace.";
+    }
+  }
+
+  const nextSettings = mergeEmbeddedSignupSettings(organization.settings, {
+    status: "linked",
+    businessPortfolioId:
+      args.businessPortfolioId?.trim() ||
+      args.businessManagerId?.trim() ||
+      null,
+    wabaId: args.wabaId?.trim() || null,
+    phoneNumberId: args.phoneNumberId?.trim() || null,
+    lastError: provisioningError,
+    authorizationCodeReceivedAt: receivedAt,
+    completedAt,
+  });
+
+  const metaCloudApiSettings = mergeMetaCloudApiSettings(nextSettings, {
+    wabaId: args.wabaId?.trim() || null,
+    phoneNumberId: args.phoneNumberId?.trim() || null,
+    appSubscribedAt: nextApiStatus === "approved" ? completedAt : null,
+    lastProvisioningError: provisioningError,
+  });
+
+  const updatedOrganization = await upsertOrganization(userId, {
+    whatsappMode: nextWhatsappMode,
+    apiStatus: nextApiStatus,
+    apiPhoneNumber: args.apiPhoneNumber?.trim() || organization.apiPhoneNumber,
+    settings: {
+      ...mergeApiSetupRequestSettings(metaCloudApiSettings, {
+        businessManagerId: args.businessManagerId,
+        businessPortfolioId:
+          args.businessPortfolioId || args.businessManagerId || undefined,
+        metaBusinessName: args.metaBusinessName,
+        displayName: args.displayName,
+        wabaId: args.wabaId,
+        phoneNumberId: args.phoneNumberId,
+        apiPhoneNumber: args.apiPhoneNumber,
+      }),
+      whatsappEmbeddedSignupCode: {
+        value: args.code,
+        receivedAt,
+      },
+    },
+  });
+
+  return toWorkspaceState(updatedOrganization);
 };

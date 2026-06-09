@@ -1,5 +1,11 @@
 import { HttpError, env, prisma } from "wasp/server";
-import { sendWhatsAppTextMessage } from "./provider";
+import {
+  getMetaWebhookVerificationChallenge,
+  metaWebhookMiddlewareConfigFn,
+  parseMetaWebhookPayload,
+  validateMetaWebhookSignature,
+} from "./metaCloudApi";
+import { sendOrganizationWhatsAppTextMessage } from "./transport";
 
 type WebhookSettings = {
   inboundUrl: string | null;
@@ -14,6 +20,15 @@ type N8nPlanContext = {
   tier: N8nPlanTier;
   routingReason: string;
 };
+
+type QrDisconnectReason =
+  | "linked_device_lost"
+  | "qr_expired"
+  | "provider_error"
+  | "manual_disconnect"
+  | "disconnected";
+
+export { metaWebhookMiddlewareConfigFn };
 
 function normalizeSettings(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -40,6 +55,69 @@ function getWebhookSettings(settings: unknown): WebhookSettings {
     inboundUrl,
     enabled: record.enabled === true,
   };
+}
+
+function mergeQrDisconnectReason(
+  settings: unknown,
+  reason: QrDisconnectReason | null,
+) {
+  const nextSettings = normalizeSettings(settings);
+
+  if (reason) {
+    nextSettings.whatsappQrDisconnectReason = reason;
+  } else {
+    delete nextSettings.whatsappQrDisconnectReason;
+  }
+
+  return nextSettings;
+}
+
+function getQrDisconnectReason(settings: unknown): QrDisconnectReason | null {
+  const value = normalizeSettings(settings).whatsappQrDisconnectReason;
+
+  return value === "linked_device_lost" ||
+    value === "qr_expired" ||
+    value === "provider_error" ||
+    value === "manual_disconnect" ||
+    value === "disconnected"
+    ? value
+    : null;
+}
+
+function logQrStateTransition(input: {
+  organizationId: string;
+  instanceName: string;
+  source: "webhook_connection_state";
+  previousStatus: string | null | undefined;
+  nextStatus: string | null | undefined;
+  previousReason: QrDisconnectReason | null;
+  nextReason: QrDisconnectReason | null;
+  previousConnected: boolean;
+  nextConnected: boolean;
+  providerEvent: string;
+  providerMessage?: string | null;
+}) {
+  const statusChanged = input.previousStatus !== input.nextStatus;
+  const reasonChanged = input.previousReason !== input.nextReason;
+  const connectedChanged = input.previousConnected !== input.nextConnected;
+
+  if (!statusChanged && !reasonChanged && !connectedChanged) {
+    return;
+  }
+
+  console.info("WhatsApp QR state transition.", {
+    organizationId: input.organizationId,
+    instanceName: input.instanceName,
+    source: input.source,
+    providerEvent: input.providerEvent,
+    previousStatus: input.previousStatus ?? null,
+    nextStatus: input.nextStatus ?? null,
+    previousReason: input.previousReason,
+    nextReason: input.nextReason,
+    previousConnected: input.previousConnected,
+    nextConnected: input.nextConnected,
+    providerMessage: input.providerMessage ?? null,
+  });
 }
 
 function getStringSetting(
@@ -282,6 +360,69 @@ async function findOrganizationByInstance(instanceName: string) {
       },
     },
   });
+}
+
+function getMetaPhoneNumberIdFromSettings(settings: unknown) {
+  const normalizedSettings = normalizeSettings(settings);
+  const candidates = [
+    normalizedSettings.whatsappMetaCloudApi,
+    normalizedSettings.whatsappEmbeddedSignup,
+    normalizedSettings.whatsappApiSetup,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      const value = (candidate as Record<string, unknown>).phoneNumberId;
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+  }
+
+  return null;
+}
+
+async function findOrganizationByMetaPhoneNumberId(phoneNumberId: string) {
+  const organizations = await prisma.organization.findMany({
+    where: {
+      apiStatus: {
+        in: ["pending", "approved"],
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      industry: true,
+      country: true,
+      flow: true,
+      whatsappMode: true,
+      apiStatus: true,
+      settings: true,
+      isAiActive: true,
+      evolutionInstanceName: true,
+      evolutionInstanceId: true,
+      qrSessionId: true,
+      qrConnected: true,
+      qrStatus: true,
+      businessDescription: true,
+      productsServices: true,
+      firstAiMessage: true,
+      user: {
+        select: {
+          subscriptionPlan: true,
+          subscriptionStatus: true,
+        },
+      },
+    },
+  });
+
+  return (
+    organizations.find(
+      (organization) =>
+        getMetaPhoneNumberIdFromSettings(organization.settings) === phoneNumberId,
+    ) ?? null
+  );
 }
 
 function getRecord(value: unknown): Record<string, unknown> | null {
@@ -629,6 +770,7 @@ function buildN8nInboundPayload({
   organization,
   contact,
   instanceName,
+  provider,
   direction,
   contactJid,
   pushName,
@@ -641,7 +783,8 @@ function buildN8nInboundPayload({
 }: {
   organization: WebhookOrganization;
   contact: WebhookContact;
-  instanceName: string;
+  instanceName: string | null;
+  provider: "evolution" | "meta-cloud-api";
   direction: "inbound" | "outbound";
   contactJid?: string | null;
   pushName?: string | null;
@@ -719,7 +862,7 @@ function buildN8nInboundPayload({
       reason: plan.routingReason,
     },
     whatsapp: {
-      provider: "evolution",
+      provider,
       mode: organization.whatsappMode ?? "qr",
       instanceName,
       instanceId: organization.evolutionInstanceId,
@@ -751,10 +894,12 @@ async function findOrganizationForReply(payload: Record<string, unknown>) {
       where: { id: organizationId },
       select: {
         id: true,
+        apiStatus: true,
         qrConnected: true,
         qrStatus: true,
         evolutionInstanceName: true,
         qrSessionId: true,
+        settings: true,
       },
     });
   }
@@ -769,10 +914,12 @@ async function findOrganizationForReply(payload: Record<string, unknown>) {
       },
       select: {
         id: true,
+        apiStatus: true,
         qrConnected: true,
         qrStatus: true,
         evolutionInstanceName: true,
         qrSessionId: true,
+        settings: true,
       },
     });
   }
@@ -821,6 +968,66 @@ async function forwardToN8n({
   }
 }
 
+function extractMetaMessageText(message: Record<string, unknown>) {
+  const textRecord = getRecord(message.text);
+  if (textRecord && typeof textRecord.body === "string" && textRecord.body.trim()) {
+    return textRecord.body.trim();
+  }
+
+  const buttonRecord = getRecord(message.button);
+  if (
+    buttonRecord &&
+    typeof buttonRecord.text === "string" &&
+    buttonRecord.text.trim()
+  ) {
+    return buttonRecord.text.trim();
+  }
+
+  const interactiveRecord = getRecord(message.interactive);
+  const buttonReply = getRecord(interactiveRecord?.button_reply);
+  if (
+    buttonReply &&
+    typeof buttonReply.title === "string" &&
+    buttonReply.title.trim()
+  ) {
+    return buttonReply.title.trim();
+  }
+
+  const listReply = getRecord(interactiveRecord?.list_reply);
+  if (
+    listReply &&
+    typeof listReply.title === "string" &&
+    listReply.title.trim()
+  ) {
+    return listReply.title.trim();
+  }
+
+  const imageRecord = getRecord(message.image);
+  if (
+    imageRecord &&
+    typeof imageRecord.caption === "string" &&
+    imageRecord.caption.trim()
+  ) {
+    return imageRecord.caption.trim();
+  }
+
+  return null;
+}
+
+function getMetaStatusError(status: Record<string, unknown>) {
+  const errors = Array.isArray(status.errors) ? status.errors : [];
+  for (const error of errors) {
+    if (error && typeof error === "object" && !Array.isArray(error)) {
+      const title = (error as Record<string, unknown>).title;
+      if (typeof title === "string" && title.trim()) {
+        return title.trim();
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function evolutionWhatsAppWebhook(
   req: any,
   res: any,
@@ -861,6 +1068,7 @@ export async function evolutionWhatsAppWebhook(
 
   if (connectionState) {
     const isConnected = connectionState === "connected";
+    const nextReason = isConnected ? null : "linked_device_lost";
     await prisma.organization.update({
       where: { id: organization.id },
       data: {
@@ -878,7 +1086,26 @@ export async function evolutionWhatsAppWebhook(
         qrLastError: isConnected
           ? null
           : "WhatsApp was disconnected from the phone or Linked Devices. Start a fresh QR to reconnect.",
+        settings: mergeQrDisconnectReason(
+          organization.settings,
+          nextReason,
+        ) as any,
       },
+    });
+    logQrStateTransition({
+      organizationId: organization.id,
+      instanceName,
+      source: "webhook_connection_state",
+      previousStatus: organization.qrStatus,
+      nextStatus: connectionState,
+      previousReason: getQrDisconnectReason(organization.settings),
+      nextReason,
+      previousConnected: organization.qrConnected,
+      nextConnected: isConnected,
+      providerEvent,
+      providerMessage: isConnected
+        ? null
+        : "WhatsApp was disconnected from the phone or Linked Devices. Start a fresh QR to reconnect.",
     });
   }
 
@@ -1013,6 +1240,7 @@ export async function evolutionWhatsAppWebhook(
     organization,
     contact,
     instanceName,
+    provider: "evolution",
     direction,
     contactJid,
     pushName,
@@ -1040,6 +1268,260 @@ export async function evolutionWhatsAppWebhook(
   }
 
   res.json({ ok: true, forwarded: true });
+}
+
+export async function metaWhatsAppWebhook(req: any, res: any, _context: any) {
+  if (req.method === "GET") {
+    const challenge = getMetaWebhookVerificationChallenge(req);
+    res.status(200).send(challenge);
+    return;
+  }
+
+  if (req.method !== "POST") {
+    throw new HttpError(405, "Method not allowed.");
+  }
+
+  validateMetaWebhookSignature(req);
+  const payload = parseMetaWebhookPayload(req);
+  const objectType =
+    typeof payload.object === "string" ? payload.object.trim() : null;
+
+  if (objectType !== "whatsapp_business_account") {
+    res.status(202).json({ ok: true, ignored: true, reason: "object_ignored" });
+    return;
+  }
+
+  const entries = Array.isArray(payload.entry) ? payload.entry : [];
+  let processedMessages = 0;
+  let processedStatuses = 0;
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+
+    const changes = Array.isArray((entry as Record<string, unknown>).changes)
+      ? ((entry as Record<string, unknown>).changes as unknown[])
+      : [];
+
+    for (const change of changes) {
+      if (!change || typeof change !== "object" || Array.isArray(change)) {
+        continue;
+      }
+
+      const value = getRecord((change as Record<string, unknown>).value);
+      const metadata = getRecord(value?.metadata);
+      const phoneNumberId =
+        typeof metadata?.phone_number_id === "string" &&
+        metadata.phone_number_id.trim()
+          ? metadata.phone_number_id.trim()
+          : null;
+
+      if (!phoneNumberId) {
+        continue;
+      }
+
+      const organization = await findOrganizationByMetaPhoneNumberId(phoneNumberId);
+      if (!organization) {
+        continue;
+      }
+
+      await prisma.organization.update({
+        where: { id: organization.id },
+        data: {
+          settings: {
+            ...normalizeSettings(organization.settings),
+            whatsappMetaCloudApi: {
+              ...(normalizeSettings(organization.settings)
+                .whatsappMetaCloudApi as Record<string, unknown> | undefined),
+              phoneNumberId,
+              webhookVerifiedAt: new Date().toISOString(),
+              lastInboundAt: new Date().toISOString(),
+            },
+          } as any,
+        },
+      });
+
+      const contacts = Array.isArray(value?.contacts) ? value.contacts : [];
+      const firstContact =
+        contacts[0] && typeof contacts[0] === "object" && !Array.isArray(contacts[0])
+          ? (contacts[0] as Record<string, unknown>)
+          : null;
+      const profile =
+        firstContact?.profile &&
+        typeof firstContact.profile === "object" &&
+        !Array.isArray(firstContact.profile)
+          ? (firstContact.profile as Record<string, unknown>)
+          : null;
+      const pushName =
+        typeof profile?.name === "string" && profile.name.trim()
+          ? profile.name.trim()
+          : null;
+
+      const messages = Array.isArray(value?.messages) ? value.messages : [];
+      for (const rawMessage of messages) {
+        if (
+          !rawMessage ||
+          typeof rawMessage !== "object" ||
+          Array.isArray(rawMessage)
+        ) {
+          continue;
+        }
+
+        const message = rawMessage as Record<string, unknown>;
+        const messageText = extractMetaMessageText(message);
+        const from =
+          typeof message.from === "string" && message.from.trim()
+            ? `${message.from.trim()}@s.whatsapp.net`
+            : null;
+        const providerMessageId =
+          typeof message.id === "string" && message.id.trim()
+            ? message.id.trim()
+            : null;
+        const messageType =
+          typeof message.type === "string" && message.type.trim()
+            ? message.type.trim()
+            : "text";
+        const timestamp =
+          typeof message.timestamp === "string" && /^\d+$/.test(message.timestamp)
+            ? new Date(Number(message.timestamp) * 1000)
+            : new Date();
+
+        if (!messageText || !from) {
+          continue;
+        }
+
+        await createWhatsAppMessageLog({
+          organizationId: organization.id,
+          instanceName: null,
+          direction: "inbound",
+          from,
+          pushName,
+          messageType,
+          text: messageText,
+          status: "RECEIVED",
+          source: "meta-cloud-api",
+          providerEvent: "messages",
+          providerMessageId,
+          occurredAt: timestamp,
+          rawPayload: message,
+        });
+
+        const contact = await upsertContactFromWhatsApp({
+          organizationId: organization.id,
+          direction: "inbound",
+          from,
+          pushName,
+          text: messageText,
+          occurredAt: timestamp,
+          shouldIncrementUnread: true,
+        });
+
+        const orgWebhook = getWebhookSettings(organization.settings);
+        const inboundUrl =
+          env.N8N_WHATSAPP_ROUTER_WEBHOOK_URL ??
+          (orgWebhook.enabled && orgWebhook.inboundUrl
+            ? orgWebhook.inboundUrl
+            : env.N8N_WHATSAPP_INBOUND_WEBHOOK_URL);
+
+        if (
+          organization.isAiActive &&
+          contact?.isAiActive &&
+          inboundUrl
+        ) {
+          const n8nPayload = buildN8nInboundPayload({
+            organization,
+            contact,
+            instanceName: null,
+            provider: "meta-cloud-api",
+            direction: "inbound",
+            contactJid: from,
+            pushName,
+            messageType,
+            messageText,
+            providerEvent: "messages",
+            providerMessageId,
+            occurredAt: timestamp,
+            rawPayload: message,
+          });
+
+          try {
+            await forwardToN8n({
+              inboundUrl,
+              payload: n8nPayload,
+            });
+          } catch (error) {
+            console.error("Could not forward Meta WhatsApp event to n8n", error);
+          }
+        }
+
+        processedMessages += 1;
+      }
+
+      const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+      for (const rawStatus of statuses) {
+        if (
+          !rawStatus ||
+          typeof rawStatus !== "object" ||
+          Array.isArray(rawStatus)
+        ) {
+          continue;
+        }
+
+        const status = rawStatus as Record<string, unknown>;
+        const providerMessageId =
+          typeof status.id === "string" && status.id.trim()
+            ? status.id.trim()
+            : null;
+        const nextStatus =
+          typeof status.status === "string" && status.status.trim()
+            ? status.status.trim()
+            : null;
+        const occurredAt =
+          typeof status.timestamp === "string" && /^\d+$/.test(status.timestamp)
+            ? new Date(Number(status.timestamp) * 1000)
+            : new Date();
+        const lastError = getMetaStatusError(status);
+
+        if (!providerMessageId || !nextStatus) {
+          continue;
+        }
+
+        await prisma.whatsAppMessageLog.updateMany({
+          where: {
+            organizationId: organization.id,
+            providerMessageId,
+          },
+          data: {
+            status: nextStatus,
+            updatedAt: occurredAt,
+          },
+        });
+
+        await prisma.campaignRecipient.updateMany({
+          where: {
+            campaign: {
+              organizationId: organization.id,
+            },
+            providerMessageId,
+          },
+          data: {
+            status: nextStatus === "delivered" ? "delivered" : nextStatus,
+            deliveredAt: nextStatus === "delivered" ? occurredAt : undefined,
+            lastError: nextStatus === "failed" ? lastError : null,
+          },
+        });
+
+        processedStatuses += 1;
+      }
+    }
+  }
+
+  res.json({
+    ok: true,
+    processedMessages,
+    processedStatuses,
+  });
 }
 
 export async function n8nWhatsAppReplyWebhook(
@@ -1071,36 +1553,23 @@ export async function n8nWhatsAppReplyWebhook(
     );
   }
 
-  const instanceName =
-    organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
-
-  if (
-    !instanceName ||
-    !organization.qrConnected ||
-    organization.qrStatus !== "connected"
-  ) {
-    throw new HttpError(
-      409,
-      "WhatsApp is not connected for this organization.",
-    );
-  }
-
-  await sendWhatsAppTextMessage({
-    instanceName,
+  const send = await sendOrganizationWhatsAppTextMessage({
+    organization,
     phoneNumber,
     message,
   });
 
   await createWhatsAppMessageLog({
     organizationId: organization.id,
-    instanceName,
+    instanceName: send.instanceName,
     direction: "outbound",
     to: phoneNumber,
     messageType: "conversation",
     text: message,
-    status: "SENT",
+    status: send.result.status ?? "SENT",
     source: "n8n",
     providerEvent: "n8n_reply",
+    providerMessageId: send.result.providerMessageId,
     rawPayload: payload,
   });
 
@@ -1108,6 +1577,7 @@ export async function n8nWhatsAppReplyWebhook(
     ok: true,
     sent: true,
     organizationId: organization.id,
-    instanceName,
+    instanceName: send.instanceName,
+    provider: send.provider,
   });
 }

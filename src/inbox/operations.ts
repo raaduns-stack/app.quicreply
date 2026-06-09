@@ -2,7 +2,7 @@ import { type Prisma } from "@prisma/client";
 import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
-import { sendWhatsAppTextMessage } from "../whatsapp/provider";
+import { sendOrganizationWhatsAppTextMessage } from "../whatsapp/transport";
 
 const inboxThreadsArgsSchema = z
   .object({
@@ -185,19 +185,6 @@ function buildPhoneMatches(phone: string) {
   return Array.from(matches).filter(Boolean);
 }
 
-function getConnectedInstanceName(organization: {
-  qrConnected: boolean;
-  qrStatus: string | null;
-  qrSessionId: string | null;
-  evolutionInstanceName: string | null;
-}) {
-  if (!organization.qrConnected && organization.qrStatus !== "connected") {
-    return null;
-  }
-
-  return organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
-}
-
 export const getInboxThreads = async (
   rawArgs: unknown,
   context: any,
@@ -353,15 +340,10 @@ export const sendInboxMessage = async (
   const userId = ensureUserId(context);
   const args = ensureArgsSchemaOrThrowHttpError(sendInboxMessageArgsSchema, rawArgs);
   const { organization, contact } = await getTenantContact(args.contactId, userId);
-  const instanceName = getConnectedInstanceName(organization);
-
-  if (!instanceName) {
-    throw new HttpError(400, "Connect WhatsApp QR before sending messages.");
-  }
 
   try {
-    const result = await sendWhatsAppTextMessage({
-      instanceName,
+    const send = await sendOrganizationWhatsAppTextMessage({
+      organization,
       phoneNumber: contact.phone,
       message: args.message,
     });
@@ -371,17 +353,21 @@ export const sendInboxMessage = async (
       prisma.whatsAppMessageLog.create({
         data: {
           organizationId: organization.id,
-          instanceName,
+          instanceName: send.instanceName,
           direction: "outbound",
           to: contact.phone,
           pushName: contact.name,
           messageType: "conversation",
           text: args.message,
-          status: result.status ?? "SENT",
+          status: send.result.status ?? "SENT",
           source: "app",
           providerEvent: "inbox_message",
-          providerMessageId: result.providerMessageId,
-          rawPayload: result.rawResponse as any,
+          providerMessageId: send.result.providerMessageId,
+          rawPayload: {
+            provider: send.provider,
+            phoneNumberId: send.phoneNumberId,
+            providerResponse: send.result.rawResponse,
+          } as any,
         },
       }),
       prisma.contact.update({

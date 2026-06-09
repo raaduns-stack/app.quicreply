@@ -1,8 +1,9 @@
 import { type Prisma } from "@prisma/client";
 import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
+import { syncNonRunningCampaignAudiencesForOrganization } from "../campaigns/operations";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
-import { sendWhatsAppTextMessage } from "../whatsapp/provider";
+import { sendOrganizationWhatsAppTextMessage } from "../whatsapp/transport";
 
 const contactStatuses = [
   "ai-active",
@@ -62,6 +63,10 @@ const updateContactArgsSchema = contactInputSchema.extend({
 
 const deleteContactArgsSchema = z.object({
   id: z.string().uuid(),
+});
+
+const deleteManyContactsArgsSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500),
 });
 
 const sendContactWhatsAppMessageArgsSchema = z.object({
@@ -152,14 +157,49 @@ function normalizeContactTags(tags: string[]) {
   return normalizedTags.length > 0 ? normalizedTags : ["Interested"];
 }
 
+function normalizeContactSourceFromDb(
+  value: string | null | undefined,
+): ContactDto["source"] {
+  if (!value) {
+    return "WhatsApp";
+  }
+
+  return (
+    contactSources.find(
+      (source) => source.toLowerCase() === value.trim().toLowerCase(),
+    ) ?? "Other"
+  );
+}
+
+function normalizeContactStatusFromDb(
+  value: string | null | undefined,
+): ContactDto["status"] {
+  const normalized = value?.trim().toLowerCase();
+
+  switch (normalized) {
+    case "ai-active":
+    case "active":
+      return "ai-active";
+    case "human-active":
+    case "qualified":
+      return "human-active";
+    case "needs-attention":
+    case "cold":
+      return "needs-attention";
+    case "new-lead":
+    default:
+      return "new-lead";
+  }
+}
+
 function toContactDto(contact: ContactRecord): ContactDto {
   return {
     id: contact.id,
     name: contact.name,
     phone: contact.phone,
     email: contact.email ?? undefined,
-    source: contact.source as ContactDto["source"],
-    status: contact.status as ContactDto["status"],
+    source: normalizeContactSourceFromDb(contact.source),
+    status: normalizeContactStatusFromDb(contact.status),
     tags: normalizeContactTags(contact.tags) as ContactDto["tags"],
     lastMsg: contact.lastMessage ?? "No messages yet",
     lastMsgTime: formatRelativeTime(contact.lastMessageAt),
@@ -344,21 +384,46 @@ export const deleteContact = async (
     },
   });
 
+  await syncNonRunningCampaignAudiencesForOrganization(organization.id);
+
   return { success: true };
 };
 
-function getConnectedInstanceName(organization: {
-  qrConnected: boolean;
-  qrStatus: string | null;
-  qrSessionId: string | null;
-  evolutionInstanceName: string | null;
-}) {
-  if (!organization.qrConnected && organization.qrStatus !== "connected") {
-    return null;
+export const deleteManyContacts = async (
+  rawArgs: unknown,
+  context: any,
+): Promise<{ deletedIds: string[] }> => {
+  const userId = ensureUserId(context);
+  const args = ensureArgsSchemaOrThrowHttpError(
+    deleteManyContactsArgsSchema,
+    rawArgs,
+  );
+  const organization = await ensureOrganizationForUser(userId);
+
+  const deletableContacts = await prisma.contact.findMany({
+    where: {
+      id: { in: args.ids },
+      organizationId: organization.id,
+    },
+    select: { id: true },
+  });
+
+  const deletableIds = deletableContacts.map((contact) => contact.id);
+  if (deletableIds.length === 0) {
+    return { deletedIds: [] };
   }
 
-  return organization.qrSessionId ?? organization.evolutionInstanceName ?? null;
-}
+  await prisma.contact.deleteMany({
+    where: {
+      id: { in: deletableIds },
+      organizationId: organization.id,
+    },
+  });
+
+  await syncNonRunningCampaignAudiencesForOrganization(organization.id);
+
+  return { deletedIds: deletableIds };
+};
 
 function getErrorMessage(error: unknown) {
   const record =
@@ -410,14 +475,9 @@ export const sendContactWhatsAppMessage = async (
     throw new HttpError(404, "Contact not found.");
   }
 
-  const instanceName = getConnectedInstanceName(organization);
-  if (!instanceName) {
-    throw new HttpError(400, "Connect WhatsApp QR before sending messages.");
-  }
-
   try {
-    const result = await sendWhatsAppTextMessage({
-      instanceName,
+    const send = await sendOrganizationWhatsAppTextMessage({
+      organization,
       phoneNumber: contact.phone,
       message: args.message,
     });
@@ -426,17 +486,21 @@ export const sendContactWhatsAppMessage = async (
       prisma.whatsAppMessageLog.create({
         data: {
           organizationId: organization.id,
-          instanceName,
+          instanceName: send.instanceName,
           direction: "outbound",
           to: contact.phone,
           pushName: contact.name,
           messageType: "conversation",
           text: args.message,
-          status: result.status ?? "SENT",
+          status: send.result.status ?? "SENT",
           source: "app",
           providerEvent: "contact_message",
-          providerMessageId: result.providerMessageId,
-          rawPayload: result.rawResponse as any,
+          providerMessageId: send.result.providerMessageId,
+          rawPayload: {
+            provider: send.provider,
+            phoneNumberId: send.phoneNumberId,
+            providerResponse: send.result.rawResponse,
+          } as any,
         },
       }),
       prisma.contact.update({

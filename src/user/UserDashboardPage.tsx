@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import {
   getDashboardSummary,
+  getWhatsAppWorkspaceState,
   refreshWhatsAppQrStatus,
   useQuery,
 } from "wasp/client/operations";
@@ -78,6 +79,24 @@ type DashboardTimeRange =
   | "last-7-days"
   | "current-month"
   | "all-time";
+type WhatsAppWorkspaceState = {
+  qr: {
+    status: "disconnected" | "pending" | "connected" | "expired" | "failed";
+    connected: boolean;
+    disconnectReason:
+      | "linked_device_lost"
+      | "qr_expired"
+      | "provider_error"
+      | "manual_disconnect"
+      | "disconnected"
+      | null;
+    checkedAt: string | null;
+    lastError: string | null;
+  };
+  api: {
+    status: "none" | "pending" | "approved";
+  };
+};
 type DashboardStat = {
   label: string;
   value: string;
@@ -244,8 +263,10 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
   const connectionSyncAttemptedRef = useRef(false);
   const greeting = getTimeBasedGreeting();
   const dashboardQuery = useQuery(getDashboardSummary, { timeRange });
+  const workspaceQuery = useQuery(getWhatsAppWorkspaceState);
   const { data, isLoading } = dashboardQuery;
   const summary = data as DashboardSummary | undefined;
+  const workspace = workspaceQuery.data as WhatsAppWorkspaceState | undefined;
   const timeRangeLabel =
     dashboardTimeRangeOptions.find((option) => option.value === timeRange)
       ?.helper ?? "This week";
@@ -327,14 +348,22 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
       ][index % 5],
     })) ?? [];
   const lastCampaign = summary?.lastCampaign ?? null;
-  const isQrConnected = summary?.qrConnected ?? false;
-  const apiStatus = summary?.apiStatus ?? "none";
+  const isQrConnected = workspace?.qr.connected ?? summary?.qrConnected ?? false;
+  const apiStatus = workspace?.api.status ?? summary?.apiStatus ?? "none";
+  const qrDisconnectReason = workspace?.qr.disconnectReason ?? null;
+  const qrLastError = workspace?.qr.lastError ?? null;
+  const showQrRecoveryBanner =
+    !isQrConnected &&
+    (qrDisconnectReason === "linked_device_lost" ||
+      qrDisconnectReason === "provider_error" ||
+      qrDisconnectReason === "qr_expired");
 
   async function handleConnectionRefresh() {
     setIsRefreshingConnection(true);
     try {
       await refreshWhatsAppQrStatus({});
       await dashboardQuery.refetch();
+      await workspaceQuery.refetch();
     } finally {
       setIsRefreshingConnection(false);
     }
@@ -410,6 +439,54 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
           </div>
         </section>
 
+        {showQrRecoveryBanner && (
+          <section className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm dark:border-red-500/30 dark:bg-red-500/10">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-500/10 dark:text-red-300">
+                <AlertTriangle className="h-5 w-5" strokeWidth={1.8} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-red-800 dark:text-red-200">
+                  {qrDisconnectReason === "qr_expired"
+                    ? "The last WhatsApp QR expired"
+                    : qrDisconnectReason === "linked_device_lost"
+                      ? "WhatsApp lost the linked-device session"
+                      : "WhatsApp QR needs recovery"}
+                </p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                  {qrLastError ??
+                    "Start a fresh QR to restore the workspace connection while Official API migration is pending."}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "h-9 cursor-pointer rounded-lg px-3 text-xs font-bold",
+                    "border-red-200 bg-white text-red-700 hover:bg-red-50 dark:border-red-500/30 dark:bg-transparent dark:text-red-200 dark:hover:bg-red-500/10",
+                  )}
+                  onClick={handleConnectionRefresh}
+                  disabled={isRefreshingConnection}
+                >
+                  {isRefreshingConnection ? "Checking..." : "Refresh status"}
+                </Button>
+                <Button
+                  asChild
+                  className={cn(
+                    "h-9 cursor-pointer rounded-lg px-3 text-xs font-bold gap-1.5",
+                    orangeButton,
+                  )}
+                >
+                  <Link to="/whatsapp">
+                    <QrCode className="h-3.5 w-3.5" strokeWidth={1.8} />
+                    Start fresh QR
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Connectivity Status Bar */}
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#e8e2d8] bg-white px-4 py-4 shadow-sm dark:border-white/10 dark:bg-[#0d1524] md:flex-nowrap md:gap-0 md:px-6">
           {/* Item 1: QR Status */}
@@ -428,7 +505,11 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
               <p className={cn("text-xs", muted)}>
                 {isQrConnected
                   ? "WhatsApp is connected"
-                  : "Connect WhatsApp to start"}
+                  : qrDisconnectReason === "linked_device_lost"
+                    ? "Linked-device session expired"
+                    : qrDisconnectReason === "qr_expired"
+                      ? "QR expired before linking"
+                      : "Connect WhatsApp to start"}
               </p>
             </div>
             <Button
@@ -440,7 +521,11 @@ export default function UserDashboardPage({ user }: { user: AuthUser }) {
               onClick={handleConnectionRefresh}
               disabled={isRefreshingConnection}
             >
-              {isRefreshingConnection ? "Checking..." : "Reconnect"}
+              {isRefreshingConnection
+                ? "Checking..."
+                : isQrConnected
+                  ? "Refresh"
+                  : "Reconnect"}
             </Button>
           </div>
 

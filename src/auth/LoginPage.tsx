@@ -12,6 +12,7 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -30,17 +31,6 @@ export default function Login() {
     } catch (err: any) {
       setErrorMsg(err?.message || "Invalid email or password.");
       setLoading(false);
-    }
-  };
-
-  const togglePwd = (id: string, btn: HTMLButtonElement) => {
-    const inp = document.getElementById(id) as HTMLInputElement;
-    if (!inp) return;
-    const icon = btn.querySelector("span");
-    inp.type = inp.type === "password" ? "text" : "password";
-    if (icon) {
-      icon.textContent =
-        inp.type === "password" ? "visibility" : "visibility_off";
     }
   };
 
@@ -377,7 +367,7 @@ export default function Login() {
                   <div className="input-wrap">
                     <span className="material-symbols-outlined icon">lock</span>
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       id="password"
                       className="auth-input"
                       placeholder="••••••••"
@@ -388,14 +378,16 @@ export default function Login() {
                     <button
                       type="button"
                       className="pwd-toggle"
-                      onClick={(e) => togglePwd("password", e.currentTarget)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-pressed={showPassword}
+                      onClick={() => setShowPassword((value) => !value)}
                       tabIndex={-1}
                     >
                       <span
                         className="material-symbols-outlined"
                         style={{ fontSize: "20px" }}
                       >
-                        visibility
+                        {showPassword ? "visibility_off" : "visibility"}
                       </span>
                     </button>
                   </div>

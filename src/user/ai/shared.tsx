@@ -1,5 +1,6 @@
 import { NavLink } from "react-router";
 import { cn } from "../../client/utils";
+import { type AiKnowledgeBase } from "./knowledgeDefaults";
 
 export type WorkspaceSettings = {
   staff: {
@@ -22,6 +23,7 @@ export type WorkspaceSettings = {
     qrConnected: boolean;
     apiStatus: string;
   };
+  aiKnowledge: AiKnowledgeBase;
   preferences: {
     currency: string;
     currencySymbol: string;
@@ -71,6 +73,7 @@ export type WorkspaceSettingsInput = {
   businessDescription?: string;
   productsServices?: string;
   firstAiMessage?: string;
+  aiKnowledge?: Partial<AiKnowledgeBase>;
 };
 
 export const aiNavItems = [
@@ -116,6 +119,7 @@ export function buildWorkspaceSettingsInput(
     businessDescription: settings.organization.businessDescription || undefined,
     productsServices: settings.organization.productsServices || undefined,
     firstAiMessage: settings.organization.firstAiMessage || undefined,
+    aiKnowledge: settings.aiKnowledge,
     ...overrides,
   };
 }

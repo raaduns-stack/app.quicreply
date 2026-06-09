@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { type AuthUser } from "wasp/auth";
 import { Link, useNavigate } from "react-router";
 import {
@@ -20,8 +20,11 @@ import {
   X,
 } from "lucide-react";
 import {
+  beginOfficialApiEmbeddedSignup,
+  completeOfficialApiEmbeddedSignupSession,
   completeOfficialApiSetup,
   getWhatsAppWorkspaceState,
+  saveOfficialApiEmbeddedSignupAssets,
   useQuery,
 } from "wasp/client/operations";
 import { Button } from "../client/components/ui/button";
@@ -39,6 +42,25 @@ type WhatsAppWorkspaceState = {
   api: {
     status: "none" | "pending" | "approved";
     phoneNumber: string | null;
+    embeddedSignup: {
+      status:
+        | "not_started"
+        | "session_prepared"
+        | "assets_captured"
+        | "linked"
+        | "failed";
+      sessionId: string | null;
+      state: string | null;
+      appId: string | null;
+      configurationId: string | null;
+      businessPortfolioId: string | null;
+      wabaId: string | null;
+      phoneNumberId: string | null;
+      lastError: string | null;
+      startedAt: string | null;
+      authorizationCodeReceivedAt: string | null;
+      completedAt: string | null;
+    };
     setupRequest: {
       legalName: string | null;
       registrationNumber: string | null;
@@ -49,9 +71,11 @@ type WhatsAppWorkspaceState = {
       website: string | null;
       address: string | null;
       businessManagerId: string | null;
+      businessPortfolioId: string | null;
       metaBusinessName: string | null;
       displayName: string | null;
       wabaId: string | null;
+      phoneNumberId: string | null;
       apiPhoneNumber: string | null;
       dailyVolume: string | null;
       useCase: string | null;
@@ -61,6 +85,39 @@ type WhatsAppWorkspaceState = {
     } | null;
   };
 };
+
+type EmbeddedSignupMessage = {
+  type: "WA_EMBEDDED_SIGNUP";
+  event:
+    | "FINISH"
+    | "FINISH_ONLY_WABA"
+    | "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+    | "CANCEL"
+    | "ERROR";
+  data?: {
+    business_id?: string;
+    waba_id?: string;
+    phone_number_id?: string;
+    current_step?: string;
+  };
+  version?: number;
+};
+
+declare global {
+  interface Window {
+    FB?: {
+      init: (args: Record<string, unknown>) => void;
+      login: (
+        callback: (response: {
+          authResponse?: { code?: string };
+          status?: string;
+        }) => void,
+        options: Record<string, unknown>,
+      ) => void;
+    };
+    fbAsyncInit?: () => void;
+  }
+}
 
 const steps = [
   {
@@ -115,6 +172,49 @@ const panelClass =
 
 const innerPanelClass =
   "rounded-xl border border-[#e8e2d8] bg-[#f7f8fa] dark:border-white/10 dark:bg-[#0b1324]";
+
+function loadFacebookSdk(appId: string) {
+  return new Promise<void>((resolve, reject) => {
+    if (window.FB) {
+      window.FB.init({
+        appId,
+        cookie: true,
+        xfbml: true,
+        version: "v23.0",
+      });
+      resolve();
+      return;
+    }
+
+    window.fbAsyncInit = () => {
+      if (!window.FB) {
+        reject(new Error("Facebook SDK did not initialize."));
+        return;
+      }
+
+      window.FB.init({
+        appId,
+        cookie: true,
+        xfbml: true,
+        version: "v23.0",
+      });
+      resolve();
+    };
+
+    const existingScript = document.getElementById("facebook-jssdk");
+    if (existingScript) {
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "facebook-jssdk";
+    script.src = "https://connect.facebook.net/en_US/sdk.js";
+    script.async = true;
+    script.onerror = () =>
+      reject(new Error("Could not load the Facebook SDK."));
+    document.head.appendChild(script);
+  });
+}
 
 function StatusPill({
   children,
@@ -173,13 +273,35 @@ function Field({
 export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { data, isLoading } = useQuery(getWhatsAppWorkspaceState);
-  const workspaceState = data as WhatsAppWorkspaceState | undefined;
+  const workspaceQuery = useQuery(getWhatsAppWorkspaceState);
+  const workspaceState = workspaceQuery.data as
+    | WhatsAppWorkspaceState
+    | undefined;
+  const isLoading = workspaceQuery.isLoading;
   const [currentStep, setCurrentStep] = useState<StepId>(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPreparingEmbeddedSignup, setIsPreparingEmbeddedSignup] =
+    useState(false);
+  const [isLaunchingEmbeddedSignup, setIsLaunchingEmbeddedSignup] =
+    useState(false);
+  const [isCompletingEmbeddedSignup, setIsCompletingEmbeddedSignup] =
+    useState(false);
+  const [isFacebookSdkReady, setIsFacebookSdkReady] = useState(false);
+  const [isSavingEmbeddedAssets, setIsSavingEmbeddedAssets] = useState(false);
   const [hasHydratedSetupRequest, setHasHydratedSetupRequest] = useState(false);
   const [authorizationRequested, setAuthorizationRequested] = useState(false);
+  const [pendingEmbeddedSignupCode, setPendingEmbeddedSignupCode] = useState<
+    string | null
+  >(null);
+  const [pendingEmbeddedSignupAssets, setPendingEmbeddedSignupAssets] =
+    useState<{
+      businessPortfolioId: string | null;
+      businessManagerId: string | null;
+      wabaId: string | null;
+      phoneNumberId: string | null;
+    } | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<string[]>([]);
+  const embeddedSignupCompletionInFlightRef = useRef(false);
   const [form, setForm] = useState({
     legalName: "",
     registrationNumber: "",
@@ -190,9 +312,11 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
     website: "",
     address: "",
     businessManagerId: "",
+    businessPortfolioId: "",
     metaBusinessName: "",
     displayName: "",
     wabaId: "",
+    phoneNumberId: "",
     apiPhoneNumber: workspaceState?.api.phoneNumber ?? "",
     dailyVolume: "1,000 - 10,000 messages/day",
     useCase: "Broadcasts, follow-ups, and Jennifer AI replies",
@@ -202,6 +326,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
 
   const progressValue = (currentStep / steps.length) * 100;
   const apiStatus = workspaceState?.api.status ?? "none";
+  const embeddedSignup = workspaceState?.api.embeddedSignup;
   const savedSetupRequest = workspaceState?.api.setupRequest;
 
   useEffect(() => {
@@ -222,10 +347,13 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
       address: savedSetupRequest.address ?? current.address,
       businessManagerId:
         savedSetupRequest.businessManagerId ?? current.businessManagerId,
+      businessPortfolioId:
+        savedSetupRequest.businessPortfolioId ?? current.businessPortfolioId,
       metaBusinessName:
         savedSetupRequest.metaBusinessName ?? current.metaBusinessName,
       displayName: savedSetupRequest.displayName ?? current.displayName,
       wabaId: savedSetupRequest.wabaId ?? current.wabaId,
+      phoneNumberId: savedSetupRequest.phoneNumberId ?? current.phoneNumberId,
       apiPhoneNumber:
         savedSetupRequest.apiPhoneNumber ??
         workspaceState?.api.phoneNumber ??
@@ -236,12 +364,219 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
         savedSetupRequest.templateExample ?? current.templateExample,
     }));
     setUploadedDocs(savedSetupRequest.uploadedDocs ?? []);
-    setAuthorizationRequested(savedSetupRequest.metaAuthorizationRequested);
+    setAuthorizationRequested(
+      savedSetupRequest.metaAuthorizationRequested ||
+        workspaceState?.api.embeddedSignup.status === "session_prepared" ||
+        workspaceState?.api.embeddedSignup.status === "assets_captured" ||
+        workspaceState?.api.embeddedSignup.status === "linked",
+    );
     setHasHydratedSetupRequest(true);
   }, [
     hasHydratedSetupRequest,
     savedSetupRequest,
     workspaceState?.api.phoneNumber,
+    workspaceState?.api.embeddedSignup.status,
+  ]);
+
+  useEffect(() => {
+    if (
+      currentStep !== 3 ||
+      !embeddedSignup?.appId ||
+      !embeddedSignup.configurationId
+    ) {
+      setIsFacebookSdkReady(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadFacebookSdk(embeddedSignup.appId)
+      .then(() => {
+        if (!cancelled) {
+          setIsFacebookSdkReady(true);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setIsFacebookSdkReady(false);
+          toast({
+            variant: "destructive",
+            title: "Could not load Meta SDK",
+            description: error?.message || "Please refresh and try again.",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentStep,
+    embeddedSignup?.appId,
+    embeddedSignup?.configurationId,
+    toast,
+  ]);
+
+  useEffect(() => {
+    function handleEmbeddedSignupMessage(event: MessageEvent) {
+      const isMetaOrigin =
+        event.origin === "https://www.facebook.com" ||
+        event.origin === "https://web.facebook.com" ||
+        event.origin === "https://business.facebook.com";
+
+      if (!isMetaOrigin) {
+        return;
+      }
+
+      let payload: EmbeddedSignupMessage | null = null;
+      if (typeof event.data === "string") {
+        try {
+          payload = JSON.parse(event.data) as EmbeddedSignupMessage;
+        } catch {
+          return;
+        }
+      } else if (event.data && typeof event.data === "object") {
+        payload = event.data as EmbeddedSignupMessage;
+      }
+
+      if (!payload || payload.type !== "WA_EMBEDDED_SIGNUP") {
+        return;
+      }
+
+      if (payload.event === "CANCEL") {
+        setIsLaunchingEmbeddedSignup(false);
+        toast({
+          title: "Embedded Signup closed",
+          description:
+            "Meta closed before finishing. You can launch it again from this step.",
+        });
+        return;
+      }
+
+      if (payload.event === "ERROR") {
+        setIsLaunchingEmbeddedSignup(false);
+        toast({
+          variant: "destructive",
+          title: "Embedded Signup failed",
+          description:
+            payload.data?.current_step ||
+            "Meta returned an error before the signup could finish.",
+        });
+        return;
+      }
+
+      if (
+        payload.event !== "FINISH" &&
+        payload.event !== "FINISH_ONLY_WABA" &&
+        payload.event !== "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+      ) {
+        return;
+      }
+
+      const businessPortfolioId = payload.data?.business_id?.trim() || null;
+      const wabaId = payload.data?.waba_id?.trim() || null;
+      const phoneNumberId = payload.data?.phone_number_id?.trim() || null;
+
+      setPendingEmbeddedSignupAssets({
+        businessPortfolioId,
+        businessManagerId: businessPortfolioId,
+        wabaId,
+        phoneNumberId,
+      });
+
+      setForm((current) => ({
+        ...current,
+        businessManagerId: current.businessManagerId || businessPortfolioId || "",
+        businessPortfolioId:
+          current.businessPortfolioId || businessPortfolioId || "",
+        wabaId: current.wabaId || wabaId || "",
+        phoneNumberId: current.phoneNumberId || phoneNumberId || "",
+      }));
+
+      toast({
+        title: "Meta assets captured",
+        description:
+          "QuicReply received the WABA and phone number details. If Meta has already returned the authorization code, the workspace will now finish linking.",
+      });
+    }
+
+    window.addEventListener("message", handleEmbeddedSignupMessage);
+    return () => {
+      window.removeEventListener("message", handleEmbeddedSignupMessage);
+    };
+  }, [toast]);
+
+  useEffect(() => {
+    const wabaId =
+      pendingEmbeddedSignupAssets?.wabaId?.trim() || form.wabaId.trim();
+    const phoneNumberId =
+      pendingEmbeddedSignupAssets?.phoneNumberId?.trim() ||
+      form.phoneNumberId.trim();
+
+    if (
+      !pendingEmbeddedSignupCode ||
+      !wabaId ||
+      !phoneNumberId ||
+      embeddedSignupCompletionInFlightRef.current
+    ) {
+      return;
+    }
+
+    embeddedSignupCompletionInFlightRef.current = true;
+    setIsCompletingEmbeddedSignup(true);
+
+    void (async () => {
+      try {
+        await completeOfficialApiEmbeddedSignupSession({
+          code: pendingEmbeddedSignupCode,
+          businessManagerId:
+            pendingEmbeddedSignupAssets?.businessManagerId?.trim() ||
+            form.businessManagerId.trim() ||
+            undefined,
+          businessPortfolioId:
+            pendingEmbeddedSignupAssets?.businessPortfolioId?.trim() ||
+            form.businessPortfolioId.trim() ||
+            undefined,
+          metaBusinessName: form.metaBusinessName.trim() || undefined,
+          displayName: form.displayName.trim() || undefined,
+          wabaId,
+          phoneNumberId,
+          apiPhoneNumber: form.apiPhoneNumber.trim() || undefined,
+        });
+        await workspaceQuery.refetch();
+        setAuthorizationRequested(true);
+        toast({
+          title: "Embedded Signup linked",
+          description:
+            "Meta returned the authorization code and asset IDs. If Meta provisioning succeeds, this workspace can move straight into approved Cloud API mode.",
+        });
+      } catch (error: any) {
+        toast({
+          variant: "destructive",
+          title: "Could not finish Embedded Signup",
+          description:
+            error?.message ||
+            "Meta returned data, but QuicReply could not save the linked session.",
+        });
+      } finally {
+        embeddedSignupCompletionInFlightRef.current = false;
+        setIsCompletingEmbeddedSignup(false);
+        setIsLaunchingEmbeddedSignup(false);
+        setPendingEmbeddedSignupCode(null);
+      }
+    })();
+  }, [
+    form.apiPhoneNumber,
+    form.businessManagerId,
+    form.businessPortfolioId,
+    form.displayName,
+    form.metaBusinessName,
+    form.phoneNumberId,
+    form.wabaId,
+    pendingEmbeddedSignupAssets,
+    pendingEmbeddedSignupCode,
+    toast,
+    workspaceQuery,
   ]);
   const statusMeta = useMemo(() => {
     if (apiStatus === "approved") {
@@ -270,25 +605,59 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
     }
 
     if (currentStep === 3) {
-      return authorizationRequested;
+      return embeddedSignup?.status === "linked";
     }
 
     if (currentStep === 4) {
-      return form.businessManagerId.trim() && form.displayName.trim();
+      return (
+        form.businessManagerId.trim() &&
+        form.businessPortfolioId.trim() &&
+        form.displayName.trim()
+      );
     }
 
     if (currentStep === 5) {
-      return form.apiPhoneNumber.trim() && form.useCase.trim();
+      return (
+        form.apiPhoneNumber.trim() &&
+        form.phoneNumberId.trim() &&
+        form.useCase.trim()
+      );
     }
 
     return true;
-  }, [authorizationRequested, currentStep, form, uploadedDocs.length]);
+  }, [currentStep, embeddedSignup?.status, form, uploadedDocs.length]);
 
   function updateForm(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function goNext() {
+  async function goNext() {
+    if (currentStep === 4) {
+      setIsSavingEmbeddedAssets(true);
+      try {
+        await saveOfficialApiEmbeddedSignupAssets({
+          businessManagerId: form.businessManagerId,
+          businessPortfolioId: form.businessPortfolioId,
+          metaBusinessName: form.metaBusinessName,
+          displayName: form.displayName,
+          wabaId: form.wabaId,
+          phoneNumberId: form.phoneNumberId,
+          apiPhoneNumber: form.apiPhoneNumber,
+        });
+        await workspaceQuery.refetch();
+      } catch (error: any) {
+        toast({
+          variant: "destructive",
+          title: "Could not save Meta asset details",
+          description: error?.message || "Please try again.",
+        });
+        setIsSavingEmbeddedAssets(false);
+        return;
+      } finally {
+        setIsSavingEmbeddedAssets(false);
+      }
+    }
+
     if (currentStep < 6 && canProceed) {
       setCurrentStep((currentStep + 1) as StepId);
     }
@@ -310,13 +679,99 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
     setUploadedDocs((current) => [...current, next]);
   }
 
-  function handleMetaAuthorization() {
-    setAuthorizationRequested(true);
-    toast({
-      title: "Meta authorization noted",
-      description:
-        "We will wire the live Facebook OAuth connection in the Meta integration step.",
-    });
+  async function handleMetaAuthorization() {
+    setIsPreparingEmbeddedSignup(true);
+    try {
+      const nextState = (await beginOfficialApiEmbeddedSignup(
+        {},
+      )) as WhatsAppWorkspaceState;
+      await workspaceQuery.refetch();
+      const embeddedSignup = nextState.api.embeddedSignup;
+      setAuthorizationRequested(
+        embeddedSignup.status === "session_prepared" ||
+          embeddedSignup.status === "assets_captured" ||
+          embeddedSignup.status === "linked",
+      );
+      toast({
+        title:
+          embeddedSignup.status === "failed"
+            ? "Embedded Signup session prepared with config warning"
+            : "Embedded Signup session prepared",
+        description:
+          embeddedSignup.lastError ||
+          "Meta session state was stored for this workspace. Launch the popup next to return the real authorization code and asset IDs.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not prepare Embedded Signup",
+        description: error?.message || "Please try again.",
+      });
+    } finally {
+      setIsPreparingEmbeddedSignup(false);
+    }
+  }
+
+  function handleLaunchEmbeddedSignup() {
+    if (
+      !window.FB ||
+      !embeddedSignup?.configurationId ||
+      !embeddedSignup.appId
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Embedded Signup is not ready",
+        description:
+          "Prepare the session first and make sure Meta app/config values are available.",
+      });
+      return;
+    }
+
+    setIsLaunchingEmbeddedSignup(true);
+    try {
+      window.FB.login(
+        (response) => {
+          const code = response.authResponse?.code?.trim();
+
+          if (!code) {
+            setIsLaunchingEmbeddedSignup(false);
+            toast({
+              variant: "destructive",
+              title: "Meta did not return an authorization code",
+              description:
+                response.status === "unknown"
+                  ? "The popup closed or was blocked before the signup finished."
+                  : "Please launch Embedded Signup again.",
+            });
+            return;
+          }
+
+          setAuthorizationRequested(true);
+          setPendingEmbeddedSignupCode(code);
+          toast({
+            title: "Authorization code received",
+            description:
+              "Waiting for the embedded signup asset IDs so QuicReply can finish linking this workspace.",
+          });
+        },
+        {
+          config_id: embeddedSignup.configurationId,
+          response_type: "code",
+          override_default_response_type: true,
+          extras: {
+            feature: "whatsapp_embedded_signup",
+            sessionInfoVersion: 3,
+          },
+        },
+      );
+    } catch (error: any) {
+      setIsLaunchingEmbeddedSignup(false);
+      toast({
+        variant: "destructive",
+        title: "Could not launch Embedded Signup",
+        description: error?.message || "Please try again.",
+      });
+    }
   }
 
   async function handleSubmit() {
@@ -332,7 +787,7 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
       toast({
         title: "API setup request saved",
         description:
-          "The Official API request is pending review. QR mode can keep running.",
+          "The setup details were saved. If Embedded Signup has already provisioned Meta successfully, the API can activate immediately; otherwise it remains pending.",
       });
       navigate("/whatsapp");
     } catch (error: any) {
@@ -602,8 +1057,8 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                 <StepHeader
                   eyebrow="Step 3 of 6"
                   icon={<Shield className="h-4 w-4" />}
-                  title="Connect Meta / Facebook"
-                  description="This is the authorization step the client asked for. For now it records intent safely instead of faking live OAuth."
+                  title="Prepare Meta Embedded Signup"
+                  description="Prepare the workspace session, launch Meta's popup, and capture the returned Cloud API asset IDs without pretending the API is fully activated."
                 />
                 <div className="rounded-2xl border border-blue-200 bg-blue-50 p-6 dark:border-blue-400/20 dark:bg-blue-500/5">
                   <div className="flex flex-col gap-5 md:flex-row md:items-start">
@@ -619,12 +1074,12 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="text-xl font-bold text-[#182235] dark:text-white">
-                        Continue with Facebook
+                        Prepare Meta session
                       </h3>
                       <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                        Live OAuth is not wired yet. This button keeps the exact
-                        setup path visible and records that Meta authorization
-                        is needed for this workspace.
+                        This action creates a server-side Embedded Signup
+                        session record with app/config metadata so the frontend
+                        popup can be wired against a real workspace session.
                       </p>
                       <div className="mt-4 grid gap-2 text-xs text-slate-600 dark:text-slate-300 md:grid-cols-3">
                         {[
@@ -641,20 +1096,94 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                           </div>
                         ))}
                       </div>
-                      <Button
-                        className="mt-5 gap-2 bg-blue-600 hover:bg-blue-700"
-                        disabled={authorizationRequested}
-                        onClick={handleMetaAuthorization}
-                      >
-                        {authorizationRequested ? (
-                          <CheckCircle2 className="h-4 w-4" />
-                        ) : (
-                          <ExternalLink className="h-4 w-4" />
-                        )}
-                        {authorizationRequested
-                          ? "Authorization request captured"
-                          : "Continue with Facebook"}
-                      </Button>
+                      <div className="mt-5 flex flex-wrap gap-3">
+                        <Button
+                          className="gap-2 bg-blue-600 hover:bg-blue-700"
+                          disabled={
+                            isPreparingEmbeddedSignup ||
+                            isLaunchingEmbeddedSignup ||
+                            isCompletingEmbeddedSignup
+                          }
+                          onClick={() => void handleMetaAuthorization()}
+                        >
+                          {isPreparingEmbeddedSignup ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : authorizationRequested ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <ExternalLink className="h-4 w-4" />
+                          )}
+                          {isPreparingEmbeddedSignup
+                            ? "Preparing session"
+                            : authorizationRequested
+                              ? "Re-prepare session"
+                              : "Prepare Embedded Signup"}
+                        </Button>
+                        <Button
+                          className="gap-2"
+                          disabled={
+                            !embeddedSignup?.appId ||
+                            !embeddedSignup.configurationId ||
+                            !isFacebookSdkReady ||
+                            isPreparingEmbeddedSignup ||
+                            isLaunchingEmbeddedSignup ||
+                            isCompletingEmbeddedSignup
+                          }
+                          onClick={handleLaunchEmbeddedSignup}
+                          variant="outline"
+                        >
+                          {isLaunchingEmbeddedSignup ||
+                          isCompletingEmbeddedSignup ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : embeddedSignup?.status === "linked" ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <ShieldCheck className="h-4 w-4" />
+                          )}
+                          {isCompletingEmbeddedSignup
+                            ? "Finishing link"
+                            : isLaunchingEmbeddedSignup
+                              ? "Waiting for Meta"
+                              : embeddedSignup?.status === "linked"
+                                ? "Linked to Meta"
+                                : "Launch Embedded Signup"}
+                        </Button>
+                      </div>
+                      <div className="mt-4 rounded-xl border border-blue-100 bg-white p-4 text-xs leading-5 text-slate-600 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-300">
+                        <p className="font-semibold text-[#182235] dark:text-white">
+                          Current backend session
+                        </p>
+                        <p className="mt-2">
+                          Status:{" "}
+                          {workspaceState?.api.embeddedSignup.status ?? "not_started"}
+                        </p>
+                        <p>
+                          App ID:{" "}
+                          {workspaceState?.api.embeddedSignup.appId || "Missing"}
+                        </p>
+                        <p>
+                          Config ID:{" "}
+                          {workspaceState?.api.embeddedSignup.configurationId ||
+                            "Missing"}
+                        </p>
+                        <p>
+                          Session ID:{" "}
+                          {workspaceState?.api.embeddedSignup.sessionId || "Not prepared"}
+                        </p>
+                        <p>
+                          SDK ready: {isFacebookSdkReady ? "Yes" : "No"}
+                        </p>
+                        <p>
+                          Authorization code received:{" "}
+                          {workspaceState?.api.embeddedSignup
+                            .authorizationCodeReceivedAt || "Not yet"}
+                        </p>
+                        {workspaceState?.api.embeddedSignup.lastError ? (
+                          <p className="mt-2 text-red-600 dark:text-red-300">
+                            {workspaceState.api.embeddedSignup.lastError}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -677,6 +1206,14 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     value={form.businessManagerId}
                   />
                   <Field
+                    label="Business portfolio ID *"
+                    onChange={(value) =>
+                      updateForm("businessPortfolioId", value)
+                    }
+                    placeholder="Embedded Signup portfolio / business ID"
+                    value={form.businessPortfolioId}
+                  />
+                  <Field
                     label="Meta business name"
                     onChange={(value) => updateForm("metaBusinessName", value)}
                     placeholder="Business Manager name"
@@ -695,6 +1232,12 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     value={form.wabaId}
                   />
                 </div>
+                <div className="mt-4 rounded-xl border border-[#e8e2d8] bg-[#f7f8fa] p-4 text-xs leading-5 text-slate-600 dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-300">
+                  Save the Meta asset identifiers captured from Embedded Signup
+                  here. This keeps them on the workspace now, and the same
+                  backend action can later be called automatically from the real
+                  callback flow.
+                </div>
               </div>
             ) : null}
 
@@ -712,6 +1255,12 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     onChange={(value) => updateForm("apiPhoneNumber", value)}
                     placeholder="e.g. 2348012345678"
                     value={form.apiPhoneNumber}
+                  />
+                  <Field
+                    label="Phone number ID *"
+                    onChange={(value) => updateForm("phoneNumberId", value)}
+                    placeholder="Meta phone_number_id"
+                    value={form.phoneNumberId}
                   />
                   <label className="block">
                     <span className={labelClass}>Expected volume</span>
@@ -764,12 +1313,21 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     ["Registration", form.registrationNumber],
                     ["Business email", form.email],
                     ["WhatsApp number", form.apiPhoneNumber],
+                    ["Phone number ID", form.phoneNumberId],
                     ["Business Manager ID", form.businessManagerId],
+                    ["Business portfolio ID", form.businessPortfolioId],
                     ["Display name", form.displayName],
                     ["Documents", `${uploadedDocs.length} captured`],
                     [
                       "Meta authorization",
-                      authorizationRequested ? "Requested" : "Not requested",
+                      workspaceState?.api.embeddedSignup.status === "linked"
+                        ? "Linked"
+                        : workspaceState?.api.embeddedSignup.status ===
+                              "session_prepared" ||
+                            workspaceState?.api.embeddedSignup.status ===
+                              "assets_captured"
+                          ? "Prepared, not linked"
+                          : "Not prepared",
                     ],
                   ].map(([label, value]) => (
                     <div className={cn(innerPanelClass, "p-4")} key={label}>
@@ -787,9 +1345,9 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
                     Production-safe behavior
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[#8a5a13] dark:text-amber-100/80">
-                    Submitting this request saves the setup details and marks
-                    API status as pending. It does not mark the API as approved
-                    or connected.
+                    Submitting this request saves the setup details. Embedded
+                    Signup can move the workspace into approved Cloud API mode
+                    only after Meta linkage and app subscription both succeed.
                   </p>
                 </div>
               </div>
@@ -808,11 +1366,20 @@ export default function WhatsAppSetupPage({ user }: { user: AuthUser }) {
               {currentStep < 6 ? (
                 <Button
                   className="gap-2"
-                  disabled={!canProceed}
-                  onClick={goNext}
+                  disabled={!canProceed || isSavingEmbeddedAssets}
+                  onClick={() => void goNext()}
                 >
-                  Continue
-                  <ChevronRight className="h-4 w-4" />
+                  {isSavingEmbeddedAssets ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving Meta assets
+                    </>
+                  ) : (
+                    <>
+                      Continue
+                      <ChevronRight className="h-4 w-4" />
+                    </>
+                  )}
                 </Button>
               ) : (
                 <Button

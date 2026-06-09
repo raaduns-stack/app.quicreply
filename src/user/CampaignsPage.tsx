@@ -1,7 +1,10 @@
 import { type AuthUser } from "wasp/auth";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   createCampaign as createCampaignOperation,
+  deleteCampaign as deleteCampaignOperation,
+  deleteManyCampaigns as deleteManyCampaignsOperation,
   getCampaignDetail,
   estimateCampaignAudience,
   getContacts,
@@ -10,6 +13,7 @@ import {
   getPipelineState,
   getWhatsAppWorkspaceState,
   launchCampaign as launchCampaignOperation,
+  updateCampaign as updateCampaignOperation,
   useQuery,
 } from "wasp/client/operations";
 import UserLayout from "./layout/UserLayout";
@@ -24,11 +28,15 @@ import {
   Loader2,
   Megaphone,
   MessageSquareText,
+  MoreVertical,
+  Pencil,
+  Copy,
   Rocket,
   RotateCcw,
   Save,
   Search,
   Send,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -59,6 +67,12 @@ interface Campaign {
   templateLanguage: string | null;
   enableJenniferReplies: boolean;
   campaignContext: string | null;
+  audienceFilter: {
+    mode: AudienceMode;
+    tags: string[];
+    stageIds: string[];
+    contactIds: string[];
+  } | null;
   audience: number;
   status: "sent" | "sending" | "queued" | "draft" | "failed";
   sent: number;
@@ -67,6 +81,15 @@ interface Campaign {
   deliveryRate: number;
   createdDate: string;
 }
+
+type CampaignAiContextDraft = {
+  offerSummary: string;
+  primaryGoal: string;
+  audienceNotes: string;
+  faqAndObjections: string;
+  allowedClaims: string;
+  handoffRules: string;
+};
 
 type ContactOption = {
   id: string;
@@ -90,6 +113,7 @@ type PipelineState = {
 type AudienceMode = "allContacts" | "tags" | "pipelineStages" | "manual";
 
 type CampaignDraft = {
+  id?: string;
   name: string;
   subtitle: string;
   message: string;
@@ -103,10 +127,19 @@ type CampaignDraft = {
   templateName: string;
   templateLanguage: string;
   enableJenniferReplies: boolean;
-  campaignContext: string;
+  aiContext: CampaignAiContextDraft;
   scheduleType: "now" | "later";
   scheduleDate: string;
   scheduleTime: string;
+};
+
+const EMPTY_CAMPAIGN_AI_CONTEXT: CampaignAiContextDraft = {
+  offerSummary: "",
+  primaryGoal: "",
+  audienceNotes: "",
+  faqAndObjections: "",
+  allowedClaims: "",
+  handoffRules: "",
 };
 
 const EMPTY_CAMPAIGN_DRAFT: CampaignDraft = {
@@ -123,7 +156,7 @@ const EMPTY_CAMPAIGN_DRAFT: CampaignDraft = {
   templateName: "",
   templateLanguage: "en",
   enableJenniferReplies: false,
-  campaignContext: "",
+  aiContext: EMPTY_CAMPAIGN_AI_CONTEXT,
   scheduleType: "now",
   scheduleDate: "",
   scheduleTime: "",
@@ -174,6 +207,194 @@ function getMediaTypeFromUrl(url: string) {
   }
 
   return "link";
+}
+
+function buildCampaignContextSummary(aiContext: CampaignAiContextDraft) {
+  return [
+    aiContext.offerSummary ? `Offer summary: ${aiContext.offerSummary}` : "",
+    aiContext.primaryGoal ? `Primary goal: ${aiContext.primaryGoal}` : "",
+    aiContext.audienceNotes ? `Audience notes: ${aiContext.audienceNotes}` : "",
+    aiContext.faqAndObjections ? `FAQs and objections: ${aiContext.faqAndObjections}` : "",
+    aiContext.allowedClaims ? `Allowed claims: ${aiContext.allowedClaims}` : "",
+    aiContext.handoffRules ? `Handoff rules: ${aiContext.handoffRules}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function serializeCampaignAiContext(aiContext: CampaignAiContextDraft) {
+  const summary = buildCampaignContextSummary(aiContext);
+  if (!summary) {
+    return "";
+  }
+
+  return JSON.stringify({
+    version: 1,
+    summary,
+    aiContext,
+  });
+}
+
+function getCampaignContextDisplay(value: string | null | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as { summary?: unknown };
+    if (parsed && typeof parsed.summary === "string" && parsed.summary.trim()) {
+      return parsed.summary.trim();
+    }
+  } catch {
+    return normalized;
+  }
+
+  return normalized;
+}
+
+function parseCampaignAiContext(value: string | null | undefined): CampaignAiContextDraft {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return EMPTY_CAMPAIGN_AI_CONTEXT;
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as {
+      aiContext?: Partial<CampaignAiContextDraft>;
+    };
+    if (parsed?.aiContext && typeof parsed.aiContext === "object") {
+      return {
+        offerSummary: parsed.aiContext.offerSummary?.trim() ?? "",
+        primaryGoal: parsed.aiContext.primaryGoal?.trim() ?? "",
+        audienceNotes: parsed.aiContext.audienceNotes?.trim() ?? "",
+        faqAndObjections: parsed.aiContext.faqAndObjections?.trim() ?? "",
+        allowedClaims: parsed.aiContext.allowedClaims?.trim() ?? "",
+        handoffRules: parsed.aiContext.handoffRules?.trim() ?? "",
+      };
+    }
+  } catch {
+    return EMPTY_CAMPAIGN_AI_CONTEXT;
+  }
+
+  return EMPTY_CAMPAIGN_AI_CONTEXT;
+}
+
+function CampaignRowActions({
+  onEdit,
+  onDuplicate,
+  onLaunch,
+  onDelete,
+  canEdit,
+  canDelete,
+  canLaunch,
+}: {
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onLaunch: () => void;
+  onDelete: () => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  canLaunch: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPosition({
+        top: rect.bottom + 8,
+        right: Math.max(window.innerWidth - rect.right, 16),
+      });
+    }
+
+    function handleClickAway() {
+      setOpen(false);
+    }
+
+    window.addEventListener("click", handleClickAway);
+    return () => window.removeEventListener("click", handleClickAway);
+  }, [open]);
+
+  return (
+    <div className="relative" onClick={(event) => event.stopPropagation()}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {open ? (
+        createPortal(
+        <div
+          className="fixed z-[120] min-w-40 rounded-xl border border-gray-200 bg-white p-1 shadow-lg dark:border-white/10 dark:bg-[#0d1524]"
+          style={{ top: menuPosition.top, right: menuPosition.right }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {canEdit ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted dark:text-white dark:hover:bg-white/10"
+              onClick={() => {
+                setOpen(false);
+                onEdit();
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </button>
+          ) : null}
+          {canLaunch ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted dark:text-white dark:hover:bg-white/10"
+              onClick={() => {
+                setOpen(false);
+                onLaunch();
+              }}
+            >
+              <Rocket className="h-4 w-4" />
+              Launch
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted dark:text-white dark:hover:bg-white/10"
+            onClick={() => {
+              setOpen(false);
+              onDuplicate();
+            }}
+          >
+            <Copy className="h-4 w-4" />
+            Duplicate to Draft
+          </button>
+          {canDelete ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-500/10"
+              onClick={() => {
+                setOpen(false);
+                onDelete();
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          ) : null}
+        </div>,
+        document.body)
+      ) : null}
+    </div>
+  );
 }
 
 function WhatsAppMessagePreview({
@@ -241,6 +462,15 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
   const [isLaunchingCampaign, setIsLaunchingCampaign] = useState(false);
   const [draft, setDraft] = useState<CampaignDraft>(EMPTY_CAMPAIGN_DRAFT);
   const [draftError, setDraftError] = useState("");
+  const [campaignPendingDelete, setCampaignPendingDelete] =
+    useState<Campaign | null>(null);
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [bulkDeleteCampaignsOpen, setBulkDeleteCampaignsOpen] =
+    useState(false);
+  const [campaignPendingLaunch, setCampaignPendingLaunch] =
+    useState<Campaign | null>(null);
   const [manualAudienceSearch, setManualAudienceSearch] = useState("");
   const [dateRange] = useState({
     start: "May 1, 2026",
@@ -259,9 +489,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
         api: { status: "none" | "pending" | "approved" };
       }
     | undefined;
-  const isQrOnly =
-    workspaceState?.whatsappMode !== "api" ||
-    workspaceState?.api.status !== "approved";
+  const isQrOnly = workspaceState?.api.status !== "approved";
 
   const filteredCampaigns = campaigns.filter((campaign) => {
     const query = searchQuery.toLowerCase();
@@ -273,6 +501,15 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
       statusFilter === "all" || campaign.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+  const deletableFilteredCampaigns = filteredCampaigns.filter(
+    (campaign) => campaign.status === "draft" || campaign.status === "failed",
+  );
+  const allDeletableFilteredSelected =
+    deletableFilteredCampaigns.length > 0 &&
+    deletableFilteredCampaigns.every((campaign) =>
+      selectedCampaignIds.has(campaign.id),
+    );
+  const selectedCampaignCount = selectedCampaignIds.size;
 
   const selectedCampaign =
     selectedCampaignId !== null
@@ -300,6 +537,26 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
       })
     | undefined;
   const contacts = (contactsQuery.data as ContactOption[] | undefined) ?? [];
+
+  useEffect(() => {
+    setSelectedCampaignIds((prev) => {
+      const validIds = new Set(
+        campaigns
+          .filter(
+            (campaign) =>
+              campaign.status === "draft" || campaign.status === "failed",
+          )
+          .map((campaign) => campaign.id),
+      );
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (validIds.has(id)) {
+          next.add(id);
+        }
+      });
+      return next;
+    });
+  }, [campaigns]);
   const pipeline = pipelineQuery.data as PipelineState | undefined;
   const pipelineStages = pipeline?.stages ?? [];
   const availableTags = useMemo(() => {
@@ -397,6 +654,47 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     [campaigns],
   );
 
+  const hasInFlightCampaigns = campaigns.some(
+    (campaign) =>
+      campaign.status === "queued" || campaign.status === "sending",
+  );
+
+  useEffect(() => {
+    if (!hasInFlightCampaigns) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const refreshCampaignState = async () => {
+      const campaignsResult = await campaignsQuery.refetch();
+      if (!isCancelled && campaignsResult.data) {
+        setCampaigns(campaignsResult.data as Campaign[]);
+      }
+
+      if (selectedCampaignId && isPanelOpen) {
+        await selectedCampaignDetailQuery.refetch();
+      }
+    };
+
+    void refreshCampaignState();
+
+    const intervalId = window.setInterval(() => {
+      void refreshCampaignState();
+    }, 2500);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    campaignsQuery,
+    hasInFlightCampaigns,
+    isPanelOpen,
+    selectedCampaignDetailQuery,
+    selectedCampaignId,
+  ]);
+
   const getStatusStyles = (status: Campaign["status"]) => {
     switch (status) {
       case "sent":
@@ -429,6 +727,80 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     setDraft(EMPTY_CAMPAIGN_DRAFT);
     setDraftError("");
     setManualAudienceSearch("");
+    setIsCreateOpen(true);
+  }
+
+  function toggleCampaignSelection(campaignId: string, checked: boolean) {
+    setSelectedCampaignIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(campaignId);
+      } else {
+        next.delete(campaignId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllCampaignSelections(checked: boolean) {
+    setSelectedCampaignIds((prev) => {
+      const next = new Set(prev);
+      deletableFilteredCampaigns.forEach((campaign) => {
+        if (checked) {
+          next.add(campaign.id);
+        } else {
+          next.delete(campaign.id);
+        }
+      });
+      return next;
+    });
+  }
+
+  function buildDraftFromCampaign(
+    campaign: Campaign,
+    options?: { duplicate?: boolean },
+  ): CampaignDraft {
+    const audienceFilter = campaign.audienceFilter;
+    const isDuplicate = options?.duplicate === true;
+
+    return {
+      id: isDuplicate ? undefined : campaign.id,
+      name: isDuplicate ? `${campaign.name} Copy` : campaign.name,
+      subtitle: campaign.subtitle,
+      message: campaign.message,
+      type:
+        campaign.subtitle === "Transactional" || campaign.subtitle === "Update"
+          ? (campaign.subtitle as CampaignDraft["type"])
+          : "Promotional",
+      audienceMode: audienceFilter?.mode ?? "allContacts",
+      selectedTags: audienceFilter?.tags ?? [],
+      selectedStageIds: audienceFilter?.stageIds ?? [],
+      selectedContactIds: audienceFilter?.contactIds ?? [],
+      mediaUrl: campaign.mediaUrl ?? "",
+      useApprovedTemplate: campaign.useApprovedTemplate,
+      templateName: campaign.templateName ?? "",
+      templateLanguage: campaign.templateLanguage ?? "en",
+      enableJenniferReplies: campaign.enableJenniferReplies,
+      aiContext: parseCampaignAiContext(campaign.campaignContext),
+      scheduleType: "now",
+      scheduleDate: "",
+      scheduleTime: "",
+    };
+  }
+
+  function openEditDialog(campaign: Campaign) {
+    setDraft(buildDraftFromCampaign(campaign));
+    setDraftError("");
+    setManualAudienceSearch("");
+    closeCampaignPanel();
+    setIsCreateOpen(true);
+  }
+
+  function openDuplicateDialog(campaign: Campaign) {
+    setDraft(buildDraftFromCampaign(campaign, { duplicate: true }));
+    setDraftError("");
+    setManualAudienceSearch("");
+    closeCampaignPanel();
     setIsCreateOpen(true);
   }
 
@@ -467,7 +839,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     setDraftError("");
 
     try {
-      const createdCampaign = (await createCampaignOperation({
+      const campaignPayload = {
         name: draft.name.trim(),
         subtitle: draft.subtitle.trim() || draft.type,
         message: draft.message.trim(),
@@ -477,20 +849,32 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
         templateName: draft.templateName.trim(),
         templateLanguage: draft.templateLanguage.trim(),
         enableJenniferReplies: draft.enableJenniferReplies,
-        campaignContext: draft.campaignContext.trim(),
+        campaignContext: serializeCampaignAiContext(draft.aiContext),
         audience: buildAudiencePayload(draft),
-      })) as Campaign;
-      setCampaigns((current) => [createdCampaign, ...current]);
+      };
+      const savedCampaign = draft.id
+        ? ((await updateCampaignOperation({
+            campaignId: draft.id,
+            ...campaignPayload,
+          })) as Campaign)
+        : ((await createCampaignOperation(campaignPayload)) as Campaign);
+      setCampaigns((current) =>
+        draft.id
+          ? current.map((campaign) =>
+              campaign.id === savedCampaign.id ? savedCampaign : campaign,
+            )
+          : [savedCampaign, ...current],
+      );
       if (!options?.stayOnPage) {
         setIsCreateOpen(false);
       }
       if (!options?.suppressToast) {
         toast({
-          title: "Campaign draft saved",
+          title: draft.id ? "Campaign updated" : "Campaign draft saved",
           description: `Audience snapshotted with ${audienceEstimate.count.toLocaleString()} recipients.`,
         });
       }
-      return createdCampaign;
+      return savedCampaign;
     } catch (err: any) {
       setDraftError(err?.message || "Could not save campaign.");
       return null;
@@ -501,6 +885,22 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
 
   async function handleLaunchRequest() {
     if (isQrOnly) {
+      const createdCampaign = await saveCampaign({
+        stayOnPage: true,
+        suppressToast: true,
+      });
+      if (!createdCampaign) {
+        return;
+      }
+
+      setIsCreateOpen(false);
+      toast({
+        title: "Campaign saved as draft",
+        description:
+          workspaceState?.api.status === "pending"
+            ? "Official API setup is still pending, so the campaign was saved locally as a draft for launch later."
+            : "QR mode can save drafts, but Official API setup is required before bulk launch.",
+      });
       setIsUpgradeOpen(true);
       return;
     }
@@ -583,6 +983,89 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     }
   }
 
+  async function launchExistingCampaign(campaign: Campaign) {
+    setIsLaunchingCampaign(true);
+
+    try {
+      const launchResult = (await launchCampaignOperation({
+        campaignId: campaign.id,
+      })) as {
+        campaign: Campaign;
+        handoff: {
+          attempted: boolean;
+          delivered: boolean;
+          reason: string;
+        };
+      };
+      const queuedCampaign = launchResult.campaign;
+
+      setCampaigns((current) =>
+        current.map((entry) =>
+          entry.id === queuedCampaign.id ? queuedCampaign : entry,
+        ),
+      );
+
+      if (selectedCampaignId === queuedCampaign.id && isPanelOpen) {
+        setSelectedCampaignId(queuedCampaign.id);
+      }
+
+      setCampaignPendingLaunch(null);
+      toast({
+        title: launchResult.handoff.delivered
+          ? "Campaign queued and handed to n8n"
+          : "Campaign queued",
+        description: launchResult.handoff.delivered
+          ? "The launch payload was delivered to n8n."
+          : launchResult.handoff.attempted
+            ? "Queueing succeeded, but n8n handoff failed. Review the campaign status."
+            : launchResult.handoff.reason,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Campaign launch blocked",
+        description: err?.message || "Could not queue campaign.",
+      });
+      setCampaignPendingLaunch(null);
+    } finally {
+      setIsLaunchingCampaign(false);
+    }
+  }
+
+  async function confirmBulkDeleteCampaigns() {
+    const campaignIds = Array.from(selectedCampaignIds);
+    if (campaignIds.length === 0) {
+      return;
+    }
+
+    try {
+      const result = (await deleteManyCampaignsOperation({
+        campaignIds,
+      })) as { deletedIds: string[] };
+      const deletedIds = new Set(result.deletedIds);
+      setCampaigns((current) =>
+        current.filter((campaign) => !deletedIds.has(campaign.id)),
+      );
+      setSelectedCampaignIds(new Set());
+      if (selectedCampaignId && deletedIds.has(selectedCampaignId)) {
+        closeCampaignPanel();
+      }
+      setBulkDeleteCampaignsOpen(false);
+      toast({
+        title:
+          deletedIds.size === 1
+            ? "1 campaign deleted"
+            : `${deletedIds.size} campaigns deleted`,
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Could not delete campaigns",
+        description: err?.message || "Please try again.",
+      });
+    }
+  }
+
   function toggleTag(tag: string) {
     setDraft((current) => ({
       ...current,
@@ -637,6 +1120,14 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
     draft.selectedTags.length,
   ]);
 
+  const isEditingCampaign = Boolean(draft.id);
+  const createPageTitle = isEditingCampaign
+    ? draft.name.trim() || "Campaign"
+    : "Create Campaign";
+  const createPageSubtitle = isEditingCampaign
+    ? "Update this campaign draft before launching it later."
+    : "Build and schedule a WhatsApp broadcast campaign";
+
   if (isCreateOpen) {
     return (
       <UserLayout user={user}>
@@ -652,11 +1143,11 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <h1 className="text-2xl font-extrabold tracking-tight text-[#182235] dark:text-white">
-                  Create Campaign
+                  {createPageTitle}
                 </h1>
               </div>
               <p className="pl-10 text-sm font-medium text-slate-500 dark:text-slate-400">
-                Build and schedule a WhatsApp broadcast campaign
+                {createPageSubtitle}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -671,7 +1162,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save Draft
+                {isEditingCampaign ? "Save" : "Save Draft"}
               </Button>
               <Button
                 className="cursor-pointer gap-1.5"
@@ -681,24 +1172,30 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                 <Eye className="h-4 w-4" />
                 Preview Campaign
               </Button>
-              <Button
-                className="cursor-pointer gap-1.5"
-                onClick={handleLaunchRequest}
-              >
-                <Rocket className="h-4 w-4" />
-                Launch Campaign
-              </Button>
+              {!isEditingCampaign ? (
+                <Button
+                  className="cursor-pointer gap-1.5"
+                  onClick={handleLaunchRequest}
+                >
+                  <Rocket className="h-4 w-4" />
+                  Launch Campaign
+                </Button>
+              ) : null}
             </div>
           </div>
 
-          {isQrOnly && (
+          {isQrOnly && !isEditingCampaign && (
             <div className="flex flex-col items-start justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center dark:border-amber-400/20 dark:bg-amber-400/10">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600 dark:text-amber-400" />
-                <p className="text-sm font-bold text-amber-800 dark:text-amber-200">
-                  QR mode has limited sending. Upgrade to Official API for bulk
-                  campaigns.
-                </p>
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-amber-800 dark:text-amber-200">
+                    QR mode can save drafts, but Official API is required before bulk sending.
+                  </p>
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                    If you try to launch now, QuicReply will save this campaign locally first and then send you to API setup.
+                  </p>
+                </div>
               </div>
               <Button
                 asChild
@@ -1128,12 +1625,12 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                   <div className="rounded-xl border border-[#e8e2d8] bg-[#faf8f4] p-4 dark:border-white/10 dark:bg-[#0b1324]">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-sm font-semibold text-[#182235] dark:text-white">
-                          Enable Jennifer to handle replies
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Reply automation can use this campaign context later when the inbox handover is wired.
-                        </p>
+                          <p className="text-sm font-semibold text-[#182235] dark:text-white">
+                            Enable Jennifer to handle replies
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Reply automation will use the campaign context below so Jennifer answers with the right offer, objections, and handoff rules.
+                          </p>
                       </div>
                       <button
                         type="button"
@@ -1160,19 +1657,63 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                       </button>
                     </div>
 
-                    <div className="mt-4 space-y-1.5">
-                      <Label className={formLabelClass}>Campaign Context</Label>
-                      <Textarea
-                        className="h-24 resize-y rounded-lg border-[#e8e2d8] bg-white text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            campaignContext: event.target.value,
-                          }))
-                        }
-                        placeholder="e.g., Land promo for buyers around DHA Phase 6. Jennifer should answer pricing, plot sizes, payment plan, and viewing questions."
-                        value={draft.campaignContext}
-                      />
+                    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      {[
+                        {
+                          key: "offerSummary" as const,
+                          label: "Offer Summary",
+                          placeholder:
+                            "What is this campaign promoting? Example: Land promo for DHA buyers with installment options.",
+                        },
+                        {
+                          key: "primaryGoal" as const,
+                          label: "Primary Goal",
+                          placeholder:
+                            "What should Jennifer try to do when someone replies? Example: qualify serious buyers and book a viewing.",
+                        },
+                        {
+                          key: "audienceNotes" as const,
+                          label: "Audience Notes",
+                          placeholder:
+                            "Who is this for? Example: warm real-estate leads who already asked about plot sizes or location.",
+                        },
+                        {
+                          key: "faqAndObjections" as const,
+                          label: "FAQs & Objections",
+                          placeholder:
+                            "List the likely questions or objections Jennifer should be ready for.",
+                        },
+                        {
+                          key: "allowedClaims" as const,
+                          label: "Allowed Claims",
+                          placeholder:
+                            "List what Jennifer may safely say. Example: flexible payment plan, viewing available, team can share pricing.",
+                        },
+                        {
+                          key: "handoffRules" as const,
+                          label: "Handoff Rules",
+                          placeholder:
+                            "When should Jennifer hand off to a human? Example: custom quote, negotiation, angry customer, or exact legal questions.",
+                        },
+                      ].map((field) => (
+                        <div key={field.key} className="space-y-1.5">
+                          <Label className={formLabelClass}>{field.label}</Label>
+                          <Textarea
+                            className="h-24 resize-y rounded-lg border-[#e8e2d8] bg-white text-sm text-foreground shadow-none placeholder:text-muted-foreground focus-visible:border-[#fe901d] focus-visible:ring-[#fe901d] dark:border-white/10 dark:bg-[#0b1324] dark:text-slate-100 dark:placeholder:text-slate-500"
+                            onChange={(event) =>
+                              setDraft((current) => ({
+                                ...current,
+                                aiContext: {
+                                  ...current.aiContext,
+                                  [field.key]: event.target.value,
+                                },
+                              }))
+                            }
+                            placeholder={field.placeholder}
+                            value={draft.aiContext[field.key]}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -1276,7 +1817,9 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
               </div>
               <DialogTitle>Upgrade Required</DialogTitle>
               <DialogDescription>
-                Upgrade to Official API before sending bulk campaigns.
+                {workspaceState?.api.status === "pending"
+                  ? "Your campaign draft is saved locally. Official API setup is still pending, so bulk sending cannot start yet."
+                  : "Your campaign draft can be saved locally, but Official API setup is required before sending bulk campaigns."}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:justify-center">
@@ -1413,13 +1956,38 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
           </div>
         </div>
 
+        {selectedCampaignCount > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-400/20 dark:bg-red-400/10">
+            <p className="text-sm font-medium text-red-700 dark:text-red-200">
+              {selectedCampaignCount} campaign{selectedCampaignCount === 1 ? "" : "s"} selected
+            </p>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setBulkDeleteCampaignsOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Selected
+            </Button>
+          </div>
+        ) : null}
+
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-[#0d1524]">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-white/10 dark:bg-white/5">
                 <tr>
                   <th className="w-8 px-4 py-3">
-                    <input type="checkbox" className="rounded" />
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={allDeletableFilteredSelected}
+                      onChange={(event) =>
+                        toggleAllCampaignSelections(event.target.checked)
+                      }
+                      disabled={deletableFilteredCampaigns.length === 0}
+                    />
                   </th>
                   {[
                     "Campaign Name",
@@ -1479,11 +2047,26 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                       className="cursor-pointer border-b border-gray-200 transition-colors hover:bg-gray-50 dark:border-white/10 dark:hover:bg-white/5"
                     >
                       <td className="px-4 py-3">
+                        {(() => {
+                          const isSelectable =
+                            campaign.status === "draft" ||
+                            campaign.status === "failed";
+                          return (
                         <input
                           type="checkbox"
                           className="rounded"
+                          checked={selectedCampaignIds.has(campaign.id)}
+                          disabled={!isSelectable}
+                          onChange={(event) =>
+                            toggleCampaignSelection(
+                              campaign.id,
+                              event.target.checked,
+                            )
+                          }
                           onClick={(event) => event.stopPropagation()}
                         />
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-3">
@@ -1535,9 +2118,24 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                         {campaign.createdDate}
                       </td>
                       <td className="px-6 py-3">
-                        <button className="text-muted-foreground hover:text-foreground dark:text-gray-400 dark:hover:text-white">
-                          <ChevronRight className="h-5 w-5" />
-                        </button>
+                        <CampaignRowActions
+                          canDelete={
+                            campaign.status === "draft" ||
+                            campaign.status === "failed"
+                          }
+                          canEdit={
+                            campaign.status === "draft" ||
+                            campaign.status === "failed"
+                          }
+                          canLaunch={
+                            campaign.status === "draft" ||
+                            campaign.status === "failed"
+                          }
+                          onDelete={() => setCampaignPendingDelete(campaign)}
+                          onDuplicate={() => openDuplicateDialog(campaign)}
+                          onLaunch={() => setCampaignPendingLaunch(campaign)}
+                          onEdit={() => openEditDialog(campaign)}
+                        />
                       </td>
                     </tr>
                   ))
@@ -1568,7 +2166,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
           <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden">
             <div
               className={cn(
-                "pointer-events-auto absolute bottom-0 right-0 top-0 w-full max-w-md border-l border-[#e8e2d8] bg-white shadow-xl dark:border-white/10 dark:bg-[#0d1524]",
+                "pointer-events-auto absolute bottom-0 right-0 top-0 flex h-screen w-full max-w-md flex-col border-l border-[#e8e2d8] bg-white shadow-xl dark:border-white/10 dark:bg-[#0d1524]",
                 isPanelClosing
                   ? "animate-out slide-out-to-right duration-200"
                   : "animate-in slide-in-from-right duration-200",
@@ -1593,7 +2191,8 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                   </button>
                 </div>
               </div>
-              <div className="space-y-5 overflow-y-auto px-6 py-5">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                <div className="space-y-5 pb-8">
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                     Message Preview
@@ -1653,7 +2252,7 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-white/10 dark:bg-white/5">
                         <p className="mb-2 text-xs text-muted-foreground">Campaign Context</p>
                         <p className="text-sm text-foreground dark:text-white">
-                          {selectedCampaign.campaignContext}
+                          {getCampaignContextDisplay(selectedCampaign.campaignContext)}
                         </p>
                       </div>
                     ) : null}
@@ -1739,10 +2338,141 @@ const CampaignsPage = ({ user }: { user: AuthUser }) => {
                     </div>
                   )}
                 </div>
+                </div>
               </div>
             </div>
           </div>
         )}
+
+        <Dialog
+          open={Boolean(campaignPendingLaunch)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setCampaignPendingLaunch(null);
+            }
+          }}
+        >
+          <DialogContent className="border-[#e8e2d8] bg-white dark:border-white/10 dark:bg-[#0d1524] sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Launch Campaign?</DialogTitle>
+              <DialogDescription>
+                {campaignPendingLaunch
+                  ? `This will queue "${campaignPendingLaunch.name}" for delivery using the configured campaign worker.`
+                  : "This will queue the selected campaign for delivery."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setCampaignPendingLaunch(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() =>
+                  campaignPendingLaunch
+                    ? launchExistingCampaign(campaignPendingLaunch)
+                    : undefined
+                }
+                disabled={isLaunchingCampaign || !campaignPendingLaunch}
+              >
+                {isLaunchingCampaign ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Rocket className="mr-2 h-4 w-4" />
+                )}
+                Launch
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(campaignPendingDelete)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setCampaignPendingDelete(null);
+            }
+          }}
+        >
+          <DialogContent className="border-[#e8e2d8] bg-white dark:border-white/10 dark:bg-[#0d1524] sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete Campaign?</DialogTitle>
+              <DialogDescription>
+                This will remove the draft campaign and its queued recipients from your local workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setCampaignPendingDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!campaignPendingDelete) return;
+                  try {
+                    await deleteCampaignOperation({
+                      campaignId: campaignPendingDelete.id,
+                    });
+                    setCampaigns((current) =>
+                      current.filter(
+                        (campaign) => campaign.id !== campaignPendingDelete.id,
+                      ),
+                    );
+                    if (selectedCampaignId === campaignPendingDelete.id) {
+                      closeCampaignPanel();
+                    }
+                    toast({
+                      title: "Campaign deleted",
+                    });
+                    setCampaignPendingDelete(null);
+                  } catch (err: any) {
+                    toast({
+                      variant: "destructive",
+                      title: "Could not delete campaign",
+                      description: err?.message || "Please try again.",
+                    });
+                  }
+                }}
+              >
+                Delete campaign
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={bulkDeleteCampaignsOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              setBulkDeleteCampaignsOpen(false);
+            }
+          }}
+        >
+          <DialogContent className="border-[#e8e2d8] bg-white dark:border-white/10 dark:bg-[#0d1524] sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete selected campaigns?</DialogTitle>
+              <DialogDescription>
+                This will remove {selectedCampaignCount} selected draft or failed campaign
+                {selectedCampaignCount === 1 ? "" : "s"} from your workspace.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setBulkDeleteCampaignsOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={confirmBulkDeleteCampaigns}>
+                Delete selected
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </UserLayout>
   );

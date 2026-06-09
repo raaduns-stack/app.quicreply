@@ -3,3 +3,4 @@ node_modules/
 .claude/
 .agents/
 .env*
+config/openclaw-openai.env

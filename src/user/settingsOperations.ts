@@ -2,6 +2,7 @@ import { HttpError, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
 import { getStaffDisplayName, getWorkspaceCurrency } from "../server/workspaceSettings";
+import { normalizeAiKnowledgeBase, type AiKnowledgeBase } from "./ai/knowledgeDefaults";
 
 const currencySchema = z.enum(["NGN", "USD", "EUR", "GBP", "INR", "CAD", "AUD"]);
 const timezoneSchema = z.enum([
@@ -32,6 +33,15 @@ const updateWorkspaceSettingsSchema = z.object({
   businessDescription: z.string().trim().max(2000).optional(),
   productsServices: z.string().trim().max(2000).optional(),
   firstAiMessage: z.string().trim().max(1000).optional(),
+  aiKnowledge: z
+    .object({
+      pricingAndPlans: z.string().trim().max(4000).optional(),
+      seatsAndLimits: z.string().trim().max(4000).optional(),
+      coreFeatures: z.string().trim().max(4000).optional(),
+      productPages: z.string().trim().max(4000).optional(),
+      policiesAndFaqs: z.string().trim().max(4000).optional(),
+    })
+    .optional(),
 });
 
 type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsSchema>;
@@ -57,6 +67,7 @@ export type WorkspaceSettings = {
     qrConnected: boolean;
     apiStatus: string;
   };
+  aiKnowledge: AiKnowledgeBase;
   preferences: {
     currency: string;
     currencySymbol: string;
@@ -115,6 +126,11 @@ function normalizeAiLanguage(value: unknown): "english" | "yoruba" | "spanish" {
 function toWorkspaceSettingsResponse(user: any, organization: any): WorkspaceSettings {
   const settings = readSettingsRecord(organization?.settings);
   const currency = getWorkspaceCurrency(settings, organization?.country);
+  const aiKnowledge = normalizeAiKnowledgeBase(
+    settings.aiKnowledge && typeof settings.aiKnowledge === "object" && !Array.isArray(settings.aiKnowledge)
+      ? (settings.aiKnowledge as Partial<AiKnowledgeBase>)
+      : undefined,
+  );
 
   return {
     staff: {
@@ -137,6 +153,7 @@ function toWorkspaceSettingsResponse(user: any, organization: any): WorkspaceSet
       qrConnected: organization?.qrConnected ?? false,
       apiStatus: organization?.apiStatus ?? "none",
     },
+    aiKnowledge,
     preferences: {
       currency: currency.code,
       currencySymbol: currency.symbol,
@@ -214,6 +231,7 @@ export const updateWorkspaceSettings = async (
     autoConfigureSystem: args.autoConfigureSystem,
     responseStyle: args.responseStyle,
     aiLanguage: args.aiLanguage,
+    aiKnowledge: normalizeAiKnowledgeBase(args.aiKnowledge),
   };
 
   const [user, updatedOrganization] = await prisma.$transaction([
