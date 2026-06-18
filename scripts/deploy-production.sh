@@ -67,12 +67,25 @@ else
   $DOCKER_COMPOSE_CMD up -d --build opensaas-app
 fi
 
-echo "==> Waiting for app health check"
-sleep 8
-
 if command -v curl >/dev/null 2>&1; then
-  if ! curl -fsS "http://127.0.0.1:${APP_PORT}" >/dev/null; then
-    echo "ERROR: Health check failed on http://127.0.0.1:${APP_PORT}"
+  echo "==> Waiting for app health check"
+  APP_HEALTH_URL="http://127.0.0.1:${APP_PORT}"
+  APP_HEALTH_ATTEMPTS="${APP_HEALTH_ATTEMPTS:-24}"
+  APP_HEALTH_INTERVAL_SECONDS="${APP_HEALTH_INTERVAL_SECONDS:-5}"
+
+  app_is_healthy="false"
+  for ((attempt = 1; attempt <= APP_HEALTH_ATTEMPTS; attempt += 1)); do
+    if curl -fsS --max-time 5 "$APP_HEALTH_URL" >/dev/null; then
+      app_is_healthy="true"
+      break
+    fi
+
+    echo "==> App health check attempt ${attempt}/${APP_HEALTH_ATTEMPTS} failed; retrying"
+    sleep "$APP_HEALTH_INTERVAL_SECONDS"
+  done
+
+  if [[ "$app_is_healthy" != "true" ]]; then
+    echo "ERROR: Health check failed on $APP_HEALTH_URL"
     $DOCKER_COMPOSE_CMD logs --tail=100 opensaas-app
     exit 1
   fi
