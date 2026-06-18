@@ -92,6 +92,27 @@ QuicReply sends this to n8n:
     "responseStyle": "professional",
     "aiLanguage": "English"
   },
+  "aiKnowledge": {
+    "pricingAndPlans": "Saved billing and pricing guidance",
+    "seatsAndLimits": "Saved seat and usage guidance",
+    "coreFeatures": "Saved feature summary",
+    "productPages": "Saved page and navigation summary",
+    "policiesAndFaqs": "Saved policy and FAQ guidance"
+  },
+  "thread": {
+    "state": "ai-active",
+    "recentMessages": [
+      {
+        "id": "log_uuid",
+        "role": "user",
+        "direction": "inbound",
+        "text": "Hi, I need more details",
+        "source": "evolution",
+        "status": "RECEIVED",
+        "createdAt": "2026-05-22T10:00:00.000Z"
+      }
+    ]
+  },
   "routing": {
     "tier": "free",
     "workflow": "free-customer-ai-flow",
@@ -151,6 +172,22 @@ Body:
 ```
 
 QuicReply also accepts `phoneNumber` or `number` instead of `to`, and `text` or `body` instead of `message`.
+
+Optional fields:
+
+```json
+{
+  "action": "reply",
+  "reason": "Short explanation for logs or UI",
+  "handoffCategory": "human_request"
+}
+```
+
+Supported actions:
+
+- `reply`: send the reply and update the contact thread preview
+- `handoff`: do not send a WhatsApp reply, pause AI for that contact, and mark the thread `needs-attention`
+- `skip`: do not send anything and leave the thread unchanged
 
 ## Failure Behavior
 

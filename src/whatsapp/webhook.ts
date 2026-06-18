@@ -6,11 +6,35 @@ import {
   validateMetaWebhookSignature,
 } from "./metaCloudApi";
 import { sendOrganizationWhatsAppTextMessage } from "./transport";
+import { normalizeAiKnowledgeBase } from "../user/ai/knowledgeDefaults";
 
 type WebhookSettings = {
   inboundUrl: string | null;
   enabled: boolean;
 };
+
+const N8N_FORWARD_TIMEOUT_MS = 10_000;
+
+function logAiRoutingEvent(
+  level: "info" | "warn" | "error",
+  event: string,
+  details: Record<string, unknown>,
+) {
+  const entry = JSON.stringify({
+    scope: "whatsapp_ai_routing",
+    event,
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+
+  if (level === "error") {
+    console.error(entry);
+  } else if (level === "warn") {
+    console.warn(entry);
+  } else {
+    console.info(entry);
+  }
+}
 
 type N8nPlanTier = "free" | "paid";
 
@@ -601,11 +625,11 @@ async function createWhatsAppMessageLog({
     });
 
     if (existingLog) {
-      return;
+      return { created: false, id: existingLog.id };
     }
   }
 
-  await prisma.whatsAppMessageLog.create({
+  const log = await prisma.whatsAppMessageLog.create({
     data: {
       organizationId,
       createdAt: occurredAt ?? undefined,
@@ -623,6 +647,8 @@ async function createWhatsAppMessageLog({
       rawPayload: rawPayload as any,
     },
   });
+
+  return { created: true, id: log.id };
 }
 
 function normalizeConnectionState(payload: Record<string, unknown>) {
@@ -766,7 +792,7 @@ function getCallbackBaseUrl() {
   return env.WHATSAPP_WEBHOOK_BASE_URL?.replace(/\/+$/, "") ?? "";
 }
 
-function buildN8nInboundPayload({
+async function buildN8nInboundPayload({
   organization,
   contact,
   instanceName,
@@ -801,6 +827,33 @@ function buildN8nInboundPayload({
   const replyPath = "/webhooks/n8n/whatsapp/reply";
   const workflow =
     plan.tier === "paid" ? "paid-customer-ai-flow" : "free-customer-ai-flow";
+  const contactPhoneDigits = contact.phone.replace(/\D/g, "");
+  const phoneMatches = Array.from(
+    new Set(
+      [contact.phone, contactPhoneDigits, `+${contactPhoneDigits}`, `${contactPhoneDigits}@s.whatsapp.net`, `${contactPhoneDigits}@c.us`]
+        .filter(Boolean),
+    ),
+  );
+  const recentLogs = await prisma.whatsAppMessageLog.findMany({
+    where: {
+      organizationId: organization.id,
+      OR: [
+        { from: { in: phoneMatches } },
+        { to: { in: phoneMatches } },
+        { from: { contains: contactPhoneDigits } },
+        { to: { contains: contactPhoneDigits } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    take: 12,
+  });
+  const aiKnowledge = normalizeAiKnowledgeBase(
+    settings.aiKnowledge &&
+      typeof settings.aiKnowledge === "object" &&
+      !Array.isArray(settings.aiKnowledge)
+      ? (settings.aiKnowledge as Record<string, string>)
+      : undefined,
+  );
 
   return {
     event: "whatsapp.inbound_message",
@@ -832,6 +885,8 @@ function buildN8nInboundPayload({
       lastMessage: contact.lastMessage,
       lastMessageAt: contact.lastMessageAt?.toISOString() ?? null,
       unreadCount: contact.unreadCount,
+      notes: contact.notes,
+      resolvedAt: contact.resolvedAt?.toISOString() ?? null,
     },
     organization: {
       id: organization.id,
@@ -855,6 +910,28 @@ function buildN8nInboundPayload({
       firstAiMessage: organization.firstAiMessage ?? "",
       responseStyle: getStringSetting(settings, "responseStyle", "professional"),
       aiLanguage: getStringSetting(settings, "aiLanguage", "English"),
+    },
+    aiKnowledge,
+    thread: {
+      state: contact.resolvedAt
+        ? "resolved"
+        : contact.status === "needs-attention"
+          ? "needs-attention"
+          : contact.status === "human-active"
+            ? "human-active"
+            : "ai-active",
+      recentMessages: recentLogs
+        .reverse()
+        .map((log) => ({
+          id: log.id,
+          role: log.direction === "outbound" ? "assistant" : "user",
+          direction: log.direction,
+          text: log.text ?? "",
+          source: log.source ?? null,
+          status: log.status ?? null,
+          createdAt: log.createdAt.toISOString(),
+        }))
+        .filter((entry) => entry.text.trim()),
     },
     routing: {
       tier: plan.tier,
@@ -961,11 +1038,36 @@ async function forwardToN8n({
     method: "POST",
     headers,
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(N8N_FORWARD_TIMEOUT_MS),
   });
 
   if (!response.ok) {
-    throw new HttpError(502, "Could not forward WhatsApp event to n8n.");
+    const responseText = (await response.text()).slice(0, 500);
+    throw new HttpError(
+      502,
+      `Could not forward WhatsApp event to n8n (${response.status}). ${responseText}`,
+    );
   }
+}
+
+async function markContactRuntimeFailure(
+  contact: WebhookContact,
+  reason: string,
+) {
+  const note = `Jennifer runtime paused: ${reason}`;
+
+  await prisma.contact.update({
+    where: { id: contact.id },
+    data: {
+      isAiActive: false,
+      status: "needs-attention",
+      assignedTo: contact.assignedTo ?? "Human follow-up needed",
+      resolvedAt: null,
+      notes: contact.notes?.includes(note)
+        ? contact.notes
+        : [contact.notes?.trim(), note].filter(Boolean).join("\n\n"),
+    },
+  });
 }
 
 function extractMetaMessageText(message: Record<string, unknown>) {
@@ -1162,7 +1264,7 @@ export async function evolutionWhatsAppWebhook(
     return;
   }
 
-  await createWhatsAppMessageLog({
+  const messageLogResult = await createWhatsAppMessageLog({
     organizationId: organization.id,
     instanceName,
     direction,
@@ -1180,6 +1282,21 @@ export async function evolutionWhatsAppWebhook(
     occurredAt,
     rawPayload: payload,
   });
+
+  if (!messageLogResult.created) {
+    logAiRoutingEvent("info", "duplicate_message_ignored", {
+      provider: "evolution",
+      organizationId: organization.id,
+      providerMessageId: extractInboundMessageId(payloadRecord),
+      messageLogId: messageLogResult.id,
+    });
+    res.status(202).json({
+      ok: true,
+      forwarded: false,
+      reason: "duplicate_message_ignored",
+    });
+    return;
+  }
 
   const contact = await upsertContactFromWhatsApp({
     organizationId: organization.id,
@@ -1209,6 +1326,11 @@ export async function evolutionWhatsAppWebhook(
   }
 
   if (!organization.isAiActive) {
+    logAiRoutingEvent("info", "organization_ai_disabled", {
+      provider: "evolution",
+      organizationId: organization.id,
+      providerMessageId: extractInboundMessageId(payloadRecord),
+    });
     res.status(202).json({
       ok: true,
       forwarded: false,
@@ -1218,6 +1340,14 @@ export async function evolutionWhatsAppWebhook(
   }
 
   if (!contact || !contact.isAiActive) {
+    logAiRoutingEvent("info", "contact_ai_unavailable", {
+      provider: "evolution",
+      organizationId: organization.id,
+      contactId: contact?.id ?? null,
+      contactStatus: contact?.status ?? null,
+      reason: contact ? "contact_ai_paused" : "contact_not_found",
+      providerMessageId: extractInboundMessageId(payloadRecord),
+    });
     res.status(202).json({
       ok: true,
       forwarded: false,
@@ -1227,6 +1357,12 @@ export async function evolutionWhatsAppWebhook(
   }
 
   if (!inboundUrl) {
+    logAiRoutingEvent("warn", "router_not_configured", {
+      provider: "evolution",
+      organizationId: organization.id,
+      contactId: contact.id,
+      providerMessageId: extractInboundMessageId(payloadRecord),
+    });
     res.status(202).json({
       ok: true,
       forwarded: false,
@@ -1236,7 +1372,7 @@ export async function evolutionWhatsAppWebhook(
   }
 
   const providerMessageId = extractInboundMessageId(payloadRecord);
-  const n8nPayload = buildN8nInboundPayload({
+  const n8nPayload = await buildN8nInboundPayload({
     organization,
     contact,
     instanceName,
@@ -1258,7 +1394,16 @@ export async function evolutionWhatsAppWebhook(
       payload: n8nPayload,
     });
   } catch (error) {
-    console.error("Could not forward WhatsApp event to n8n", error);
+    const reason =
+      error instanceof Error ? error.message : "Unknown n8n forwarding failure";
+    await markContactRuntimeFailure(contact, reason);
+    logAiRoutingEvent("error", "n8n_forward_failed", {
+      provider: "evolution",
+      organizationId: organization.id,
+      contactId: contact.id,
+      providerMessageId,
+      reason,
+    });
     res.status(202).json({
       ok: true,
       forwarded: false,
@@ -1267,6 +1412,12 @@ export async function evolutionWhatsAppWebhook(
     return;
   }
 
+  logAiRoutingEvent("info", "n8n_forwarded", {
+    provider: "evolution",
+    organizationId: organization.id,
+    contactId: contact.id,
+    providerMessageId,
+  });
   res.json({ ok: true, forwarded: true });
 }
 
@@ -1391,7 +1542,7 @@ export async function metaWhatsAppWebhook(req: any, res: any, _context: any) {
           continue;
         }
 
-        await createWhatsAppMessageLog({
+        const messageLogResult = await createWhatsAppMessageLog({
           organizationId: organization.id,
           instanceName: null,
           direction: "inbound",
@@ -1406,6 +1557,16 @@ export async function metaWhatsAppWebhook(req: any, res: any, _context: any) {
           occurredAt: timestamp,
           rawPayload: message,
         });
+
+        if (!messageLogResult.created) {
+          logAiRoutingEvent("info", "duplicate_message_ignored", {
+            provider: "meta-cloud-api",
+            organizationId: organization.id,
+            providerMessageId,
+            messageLogId: messageLogResult.id,
+          });
+          continue;
+        }
 
         const contact = await upsertContactFromWhatsApp({
           organizationId: organization.id,
@@ -1424,12 +1585,30 @@ export async function metaWhatsAppWebhook(req: any, res: any, _context: any) {
             ? orgWebhook.inboundUrl
             : env.N8N_WHATSAPP_INBOUND_WEBHOOK_URL);
 
-        if (
-          organization.isAiActive &&
-          contact?.isAiActive &&
-          inboundUrl
-        ) {
-          const n8nPayload = buildN8nInboundPayload({
+        if (!organization.isAiActive) {
+          logAiRoutingEvent("info", "organization_ai_disabled", {
+            provider: "meta-cloud-api",
+            organizationId: organization.id,
+            providerMessageId,
+          });
+        } else if (!contact?.isAiActive) {
+          logAiRoutingEvent("info", "contact_ai_unavailable", {
+            provider: "meta-cloud-api",
+            organizationId: organization.id,
+            contactId: contact?.id ?? null,
+            contactStatus: contact?.status ?? null,
+            reason: contact ? "contact_ai_paused" : "contact_not_found",
+            providerMessageId,
+          });
+        } else if (!inboundUrl) {
+          logAiRoutingEvent("warn", "router_not_configured", {
+            provider: "meta-cloud-api",
+            organizationId: organization.id,
+            contactId: contact.id,
+            providerMessageId,
+          });
+        } else {
+          const n8nPayload = await buildN8nInboundPayload({
             organization,
             contact,
             instanceName: null,
@@ -1450,8 +1629,25 @@ export async function metaWhatsAppWebhook(req: any, res: any, _context: any) {
               inboundUrl,
               payload: n8nPayload,
             });
+            logAiRoutingEvent("info", "n8n_forwarded", {
+              provider: "meta-cloud-api",
+              organizationId: organization.id,
+              contactId: contact.id,
+              providerMessageId,
+            });
           } catch (error) {
-            console.error("Could not forward Meta WhatsApp event to n8n", error);
+            const reason =
+              error instanceof Error
+                ? error.message
+                : "Unknown n8n forwarding failure";
+            await markContactRuntimeFailure(contact, reason);
+            logAiRoutingEvent("error", "n8n_forward_failed", {
+              provider: "meta-cloud-api",
+              organizationId: organization.id,
+              contactId: contact.id,
+              providerMessageId,
+              reason,
+            });
           }
         }
 
@@ -1535,10 +1731,26 @@ export async function n8nWhatsAppReplyWebhook(
     req.body && typeof req.body === "object" && !Array.isArray(req.body)
       ? (req.body as Record<string, unknown>)
       : {};
+  const action =
+    typeof payload.action === "string" && payload.action.trim()
+      ? payload.action.trim().toLowerCase()
+      : "reply";
+  const contactId =
+    typeof payload.contactId === "string" && payload.contactId.trim()
+      ? payload.contactId.trim()
+      : null;
+  const reason =
+    getReplyString(payload, ["reason", "handoffReason", "summary"]) ?? null;
+  const handoffCategory =
+    getReplyString(payload, ["handoffCategory", "category"]) ?? null;
   const phoneNumber = getReplyString(payload, ["to", "phoneNumber", "number"]);
   const message = getReplyString(payload, ["message", "text", "body"]);
 
-  if (!phoneNumber || !message) {
+  if (!["reply", "handoff", "skip"].includes(action)) {
+    throw new HttpError(400, "Unsupported Jennifer action.");
+  }
+
+  if (action === "reply" && (!phoneNumber || !message)) {
     throw new HttpError(
       400,
       "Provide a recipient number and message text before sending a WhatsApp reply.",
@@ -1553,24 +1765,142 @@ export async function n8nWhatsAppReplyWebhook(
     );
   }
 
-  const send = await sendOrganizationWhatsAppTextMessage({
-    organization,
-    phoneNumber,
-    message,
-  });
+  const contact =
+    contactId
+      ? await prisma.contact.findFirst({
+          where: {
+            id: contactId,
+            organizationId: organization.id,
+          },
+        })
+      : null;
+
+  if (action === "handoff") {
+    if (contact) {
+      await prisma.contact.update({
+        where: { id: contact.id },
+        data: {
+          isAiActive: false,
+          status: "needs-attention",
+          assignedTo: contact.assignedTo ?? "Human follow-up needed",
+          resolvedAt: null,
+          notes:
+            reason && !contact.notes?.includes(reason)
+              ? [contact.notes?.trim(), `AI handoff: ${reason}`]
+                  .filter(Boolean)
+                  .join("\n\n")
+              : contact.notes,
+        },
+      });
+    }
+
+    logAiRoutingEvent("warn", "openclaw_handoff", {
+      organizationId: organization.id,
+      contactId,
+      providerMessageId: getReplyString(payload, ["providerMessageId"]),
+      reason,
+      handoffCategory,
+    });
+
+    res.json({
+      ok: true,
+      sent: false,
+      handoff: true,
+      organizationId: organization.id,
+      contactId,
+      handoffCategory,
+      reason,
+    });
+    return;
+  }
+
+  if (action === "skip") {
+    logAiRoutingEvent("info", "openclaw_skip", {
+      organizationId: organization.id,
+      contactId,
+      providerMessageId: getReplyString(payload, ["providerMessageId"]),
+      reason,
+    });
+    res.json({
+      ok: true,
+      sent: false,
+      skipped: true,
+      organizationId: organization.id,
+      contactId,
+      reason,
+    });
+    return;
+  }
+
+  const replyPhoneNumber = phoneNumber!;
+  const replyMessage = message!;
+
+  let send: Awaited<ReturnType<typeof sendOrganizationWhatsAppTextMessage>>;
+  try {
+    send = await sendOrganizationWhatsAppTextMessage({
+      organization,
+      phoneNumber: replyPhoneNumber,
+      message: replyMessage,
+    });
+  } catch (error) {
+    const failureReason =
+      error instanceof Error ? error.message : "Unknown WhatsApp send failure";
+
+    if (contact) {
+      await markContactRuntimeFailure(contact, failureReason);
+    }
+
+    logAiRoutingEvent("error", "reply_callback_send_failed", {
+      organizationId: organization.id,
+      contactId,
+      providerMessageId: getReplyString(payload, ["providerMessageId"]),
+      reason: failureReason,
+    });
+    throw new HttpError(502, "Could not send the Jennifer WhatsApp reply.");
+  }
+
+  const now = new Date();
 
   await createWhatsAppMessageLog({
     organizationId: organization.id,
     instanceName: send.instanceName,
     direction: "outbound",
-    to: phoneNumber,
+    to: replyPhoneNumber,
+    pushName: contact?.name ?? null,
     messageType: "conversation",
-    text: message,
+    text: replyMessage,
     status: send.result.status ?? "SENT",
     source: "n8n",
     providerEvent: "n8n_reply",
     providerMessageId: send.result.providerMessageId,
-    rawPayload: payload,
+    rawPayload: {
+      ...payload,
+      ai: {
+        action,
+        reason,
+        handoffCategory,
+      },
+    },
+  });
+
+  if (contact) {
+    await prisma.contact.update({
+      where: { id: contact.id },
+      data: {
+        lastMessage: replyMessage,
+        lastMessageAt: now,
+        lastMessageDirection: "outbound",
+        resolvedAt: null,
+        status: contact.isAiActive ? "ai-active" : contact.status,
+      },
+    });
+  }
+
+  logAiRoutingEvent("info", "reply_callback_sent", {
+    organizationId: organization.id,
+    contactId,
+    inboundProviderMessageId: getReplyString(payload, ["providerMessageId"]),
+    outboundProviderMessageId: send.result.providerMessageId,
   });
 
   res.json({

@@ -5,6 +5,7 @@ import { type AuthUser } from "wasp/auth";
 import {
   getInboxThreadMessages,
   getInboxThreads,
+  getInboxAiRuntimeStatus,
   markInboxThreadRead as markInboxThreadReadOperation,
   resolveInboxThread as resolveInboxThreadOperation,
   sendInboxMessage as sendInboxMessageOperation,
@@ -59,6 +60,12 @@ type InboxMessage = {
   status: string | null;
 };
 
+type InboxAiRuntimeStatus = {
+  status: "online" | "unavailable" | "not-configured" | "disabled";
+  checkedAt: string;
+  detail: string;
+};
+
 const filters: Array<{ value: ThreadFilter; label: string }> = [
   { value: "all", label: "All" },
   { value: "unread", label: "Unread" },
@@ -86,6 +93,54 @@ function getSourceLabel(source: string) {
   return source || "Manual";
 }
 
+function getMessageSourceLabel(source: string | null) {
+  if (source === "n8n") {
+    return "Jennifer";
+  }
+
+  if (source === "app") {
+    return "Team";
+  }
+
+  return null;
+}
+
+function getJenniferState(
+  thread: InboxThread | null,
+  runtime: InboxAiRuntimeStatus | null,
+) {
+  if (thread?.status === "needs-attention") {
+    return {
+      label: "Needs attention",
+      detail: "Jennifer paused this thread and requested human follow-up.",
+      dotClass: "bg-amber-400",
+    };
+  }
+
+  if (!thread?.isAiActive) {
+    return {
+      label: "Human takeover",
+      detail: "Jennifer is paused while your team handles this conversation.",
+      dotClass: "bg-slate-500",
+    };
+  }
+
+  if (runtime?.status === "online") {
+    return {
+      label: "Jennifer online",
+      detail: "Jennifer and the inbox router are ready to respond.",
+      dotClass: "bg-emerald-400",
+    };
+  }
+
+  return {
+    label: "Jennifer unavailable",
+    detail:
+      runtime?.detail ?? "Jennifer runtime readiness is being checked.",
+    dotClass: "bg-amber-400",
+  };
+}
+
 export default function InboxPage({ user }: { user: AuthUser }) {
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -96,10 +151,19 @@ export default function InboxPage({ user }: { user: AuthUser }) {
   const [isSending, setIsSending] = useState(false);
   const [isUpdatingThread, setIsUpdatingThread] = useState(false);
 
-  const threadsQuery = useQuery(getInboxThreads, {
-    filter: threadFilter,
-    search: searchQuery,
-  });
+  const threadsQuery = useQuery(
+    getInboxThreads,
+    {
+      filter: threadFilter,
+      search: searchQuery,
+    },
+    {
+      refetchInterval: () =>
+        typeof document !== "undefined" && !document.hidden ? 8_000 : false,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: "always",
+    },
+  );
   const threads = (threadsQuery.data as InboxThread[] | undefined) ?? [];
   const activeThread = useMemo(
     () => threads.find((thread) => thread.id === activeThreadId) ?? threads[0] ?? null,
@@ -108,9 +172,28 @@ export default function InboxPage({ user }: { user: AuthUser }) {
   const messagesQuery = useQuery(
     getInboxThreadMessages,
     { contactId: activeThread?.id ?? "" },
-    { enabled: Boolean(activeThread?.id) },
+    {
+      enabled: Boolean(activeThread?.id),
+      refetchInterval: () =>
+        typeof document !== "undefined" && !document.hidden ? 5_000 : false,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: "always",
+    },
   );
   const messages = (messagesQuery.data as InboxMessage[] | undefined) ?? [];
+  const runtimeQuery = useQuery(
+    getInboxAiRuntimeStatus,
+    {},
+    {
+      refetchInterval: () =>
+        typeof document !== "undefined" && !document.hidden ? 15_000 : false,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: "always",
+    },
+  );
+  const runtimeStatus =
+    (runtimeQuery.data as InboxAiRuntimeStatus | undefined) ?? null;
+  const jenniferState = getJenniferState(activeThread, runtimeStatus);
 
   useEffect(() => {
     if (!activeThreadId && threads.length > 0) {
@@ -363,16 +446,11 @@ export default function InboxPage({ user }: { user: AuthUser }) {
           <div className="flex items-center justify-between bg-slate-950 px-4 py-3 text-white dark:bg-[#0d1017] md:px-6">
             <div className="flex items-center gap-3">
               <span
-                className={cn(
-                  "h-2 w-2 rounded-full",
-                  activeThread?.isAiActive ? "bg-emerald-400" : "bg-slate-500",
-                )}
+                className={cn("h-2 w-2 rounded-full", jenniferState.dotClass)}
               />
-              <span className="text-sm font-semibold">
-                Jennifer AI {activeThread?.isAiActive ? "Active" : "Paused"}
-              </span>
+              <span className="text-sm font-semibold">{jenniferState.label}</span>
               <span className="hidden text-xs text-slate-400 sm:inline">
-                Uses the organization AI setting and this contact state.
+                {jenniferState.detail}
               </span>
             </div>
             <Button
@@ -425,16 +503,28 @@ export default function InboxPage({ user }: { user: AuthUser }) {
                       )}
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                      <p
+                      <div
                         className={cn(
-                          "mt-1 text-xs",
+                          "mt-1 flex items-center gap-2 text-xs",
                           msg.direction === "outbound"
                             ? "text-orange-100"
                             : "text-slate-500 dark:text-slate-400",
                         )}
                       >
-                        {msg.timestamp}
-                      </p>
+                        <span>{msg.timestamp}</span>
+                        {getMessageSourceLabel(msg.source) ? (
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              msg.direction === "outbound"
+                                ? "bg-white/15 text-white"
+                                : "bg-[#fff3e1] text-[#c96a00] dark:bg-[#fe901d]/10 dark:text-[#ffb84d]",
+                            )}
+                          >
+                            {getMessageSourceLabel(msg.source)}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -472,9 +562,11 @@ export default function InboxPage({ user }: { user: AuthUser }) {
               </Button>
             </div>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              {activeThread?.isAiActive
-                ? "Jennifer can respond automatically for this contact."
-                : "Human takeover is active for this contact."}
+              {activeThread?.status === "needs-attention"
+                ? "Jennifer paused this thread and flagged it for a human response."
+                : activeThread?.isAiActive
+                  ? "Jennifer can respond automatically for this contact."
+                  : "Human takeover is active for this contact."}
             </p>
           </div>
         </main>

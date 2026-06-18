@@ -1,0 +1,21 @@
+services:
+  n8n:
+    image: n8nio/n8n:2.15.0
+    container_name: stack_n8n
+    restart: unless-stopped
+    env_file:
+      - /opt/stack/quicreply-n8n-runtime.env
+    volumes:
+      - /root/.n8n:/home/node/.n8n
+    ports:
+      - "127.0.0.1:5678:5678"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - stack_net
+    mem_limit: 512m
+
+networks:
+  stack_net:
+    external: true
+    name: stack_stack_net

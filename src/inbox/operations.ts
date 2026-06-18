@@ -1,5 +1,5 @@
 import { type Prisma } from "@prisma/client";
-import { HttpError, prisma } from "wasp/server";
+import { HttpError, env, prisma } from "wasp/server";
 import * as z from "zod";
 import { ensureArgsSchemaOrThrowHttpError } from "../server/validation";
 import { sendOrganizationWhatsAppTextMessage } from "../whatsapp/transport";
@@ -54,6 +54,12 @@ export type InboxMessageDto = {
   createdAt: string;
   source: string | null;
   status: string | null;
+};
+
+export type InboxAiRuntimeStatusDto = {
+  status: "online" | "unavailable" | "not-configured" | "disabled";
+  checkedAt: string;
+  detail: string;
 };
 
 const avatarColors = [
@@ -265,6 +271,75 @@ export const getInboxThreadMessages = async (
   });
 
   return logs.map(toMessageDto);
+};
+
+export const getInboxAiRuntimeStatus = async (
+  _rawArgs: unknown,
+  context: any,
+): Promise<InboxAiRuntimeStatusDto> => {
+  const userId = ensureUserId(context);
+  const organization = await ensureOrganizationForUser(userId);
+  const checkedAt = new Date().toISOString();
+
+  if (!organization.isAiActive) {
+    return {
+      status: "disabled",
+      checkedAt,
+      detail: "Jennifer is disabled for this workspace.",
+    };
+  }
+
+  const routerUrl = env.N8N_WHATSAPP_ROUTER_WEBHOOK_URL;
+  if (!routerUrl) {
+    return {
+      status: "not-configured",
+      checkedAt,
+      detail: "Jennifer routing is not configured.",
+    };
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-quicreply-event": "runtime.health",
+  };
+  if (env.N8N_WHATSAPP_ROUTER_SECRET) {
+    headers["x-quicreply-webhook-secret"] = env.N8N_WHATSAPP_ROUTER_SECRET;
+  }
+
+  try {
+    const response = await fetch(routerUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        event: "runtime.health",
+        organizationId: organization.id,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | { ok?: boolean; openclaw?: boolean }
+      | null;
+
+    if (!response.ok || !payload?.ok || payload.openclaw !== true) {
+      return {
+        status: "unavailable",
+        checkedAt,
+        detail: "Jennifer is enabled but the AI runtime is unavailable.",
+      };
+    }
+
+    return {
+      status: "online",
+      checkedAt,
+      detail: "Jennifer and the inbox router are online.",
+    };
+  } catch {
+    return {
+      status: "unavailable",
+      checkedAt,
+      detail: "Jennifer is enabled but the AI runtime is unavailable.",
+    };
+  }
 };
 
 export const markInboxThreadRead = async (

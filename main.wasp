@@ -418,6 +418,12 @@ query getInboxThreadMessages {
   auth: true
 }
 
+query getInboxAiRuntimeStatus {
+  fn: import { getInboxAiRuntimeStatus } from "@src/inbox/operations",
+  entities: [User, Organization],
+  auth: true
+}
+
 action markInboxThreadRead {
   fn: import { markInboxThreadRead } from "@src/inbox/operations",
   entities: [User, Organization, Contact],

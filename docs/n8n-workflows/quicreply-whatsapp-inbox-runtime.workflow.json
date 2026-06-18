@@ -1,0 +1,142 @@
+{
+  "id": "quicreply-whatsapp-inbox-runtime",
+  "name": "QuicReply WhatsApp Inbox Runtime",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "quicreply-whatsapp-inbox",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "id": "webhook-inbox",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $json.body ?? $json;\nconst headers = $json.headers ?? {};\nconst expectedSecret = String($env.N8N_WHATSAPP_ROUTER_SECRET || '').trim();\nconst incomingSecret = String(headers['x-quicreply-webhook-secret'] || headers['X-Quicreply-Webhook-Secret'] || '').trim();\n\nif (!expectedSecret || incomingSecret !== expectedSecret) {\n  throw new Error('Unauthorized QuicReply inbox webhook request.');\n}\n\nif (request.event === 'runtime.health') {\n  return [{ json: { mode: 'health' } }];\n}\n\nconst organizationId = String(request.organizationId || '').trim();\nconst contactId = String(request.contactId || '').trim();\nconst providerMessageId = String(request.message?.id || '').trim();\nconst customerMessage = String(request.message?.text || '').trim();\nconst callbackUrl = String(request.callback?.replyUrl || '').trim();\nconst phone = String(request.contact?.phone || request.phone || '').trim();\n\nif (!organizationId || !contactId || !providerMessageId || !customerMessage || !callbackUrl || !phone) {\n  throw new Error('Incomplete QuicReply inbox payload.');\n}\n\nlet forcedAction = null;\nlet forcedReason = null;\nlet forcedCategory = null;\nif (request.organization?.isAiActive !== true || request.contact?.isAiActive !== true) {\n  forcedAction = 'skip';\n  forcedReason = 'Jennifer is disabled for this workspace or contact.';\n  forcedCategory = 'ai_disabled';\n} else if (['human-active', 'needs-attention', 'resolved'].includes(String(request.thread?.state || ''))) {\n  forcedAction = 'skip';\n  forcedReason = `Thread state does not allow AI replies: ${request.thread.state}.`;\n  forcedCategory = 'thread_not_ai_active';\n} else {\n  const handoffRules = [\n    [/\\b(human|person|agent|representative|manager|someone real)\\b/i, 'human_request'],\n    [/\\b(refund|chargeback|billing dispute|charged twice|unauthori[sz]ed charge)\\b/i, 'billing_or_refund'],\n    [/\\b(lawyer|legal|lawsuit|regulator|compliance|police)\\b/i, 'legal_or_compliance'],\n    [/\\b(order status|where is my order|tracking number|payment status)\\b/i, 'account_specific_status'],\n    [/\\b(angry|furious|scam|fraud|terrible service|unacceptable)\\b/i, 'customer_escalation'],\n    [/\\b(custom price|special price|negotiate|bulk discount)\\b/i, 'commercial_negotiation']\n  ];\n  const matchedRule = handoffRules.find(([pattern]) => pattern.test(customerMessage));\n  if (matchedRule) {\n    forcedAction = 'handoff';\n    forcedReason = 'This request requires human review.';\n    forcedCategory = matchedRule[1];\n  }\n}\n\nconst history = Array.isArray(request.thread?.recentMessages) ? request.thread.recentMessages : [];\nconst compactHistory = history.slice(-12).map((entry) => `${entry.role === 'assistant' ? 'Jennifer' : 'Customer'}: ${String(entry.text || '').trim()}`).filter((entry) => !entry.endsWith(': '));\nconst knowledge = request.aiKnowledge || {};\nconst context = request.businessContext || {};\n\nconst prompt = [\n  'You are Jennifer, the live WhatsApp assistant for this business.',\n  'Write only the customer-facing reply text.',\n  'Use only the supplied business facts and conversation history.',\n  'Never claim a refund, payment, order change, delivery, account update, or other live action happened unless the supplied context confirms it.',\n  'Do not invent prices, stock, order status, discounts, guarantees, or policies.',\n  'Keep the reply concise and ask at most one follow-up question.',\n  `Business: ${String(context.businessDescription || 'Not provided.')}`,\n  `Products and services: ${String(context.productsServices || 'Not provided.')}`,\n  `First-message guidance: ${String(context.firstAiMessage || 'Not provided.')}`,\n  `Response style: ${String(context.responseStyle || 'professional')}`,\n  `Language: ${String(context.aiLanguage || 'English')}`,\n  `Pricing and plans: ${String(knowledge.pricingAndPlans || 'Not provided.')}`,\n  `Seats and limits: ${String(knowledge.seatsAndLimits || 'Not provided.')}`,\n  `Core features: ${String(knowledge.coreFeatures || 'Not provided.')}`,\n  `Product pages: ${String(knowledge.productPages || 'Not provided.')}`,\n  `Policies and FAQs: ${String(knowledge.policiesAndFaqs || 'Not provided.')}`,\n  `Conversation:\\n${compactHistory.length ? compactHistory.join('\\n') : 'No earlier messages.'}`,\n  `Latest customer message: ${customerMessage}`\n].join('\\n');\n\nreturn [{ json: { mode: 'message', organizationId, contactId, providerMessageId, callbackUrl, phone, forcedAction, forcedReason, forcedCategory, openclawPrompt: prompt } }];"
+      },
+      "id": "prepare-request",
+      "name": "Prepare Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 340]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2},
+          "conditions": [{"id": "health-mode", "leftValue": "={{ $json.mode }}", "rightValue": "health", "operator": {"type": "string", "operation": "equals"}}],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "is-health-check",
+      "name": "Is Health Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [740, 340]
+    },
+    {
+      "parameters": {
+        "url": "={{ ($env.OPENCLAW_BASE_URL || 'http://host.docker.internal:18789') + '/readyz' }}",
+        "options": {"timeout": 5000}
+      },
+      "id": "check-openclaw",
+      "name": "Check OpenClaw",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 180],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const online = !$json.error && ($json.ready === true || $json.ok === true);\nreturn [{ json: { ok: online, n8n: true, openclaw: online, status: online ? 'online' : 'unavailable', checkedAt: new Date().toISOString() } }];"
+      },
+      "id": "finalize-health",
+      "name": "Finalize Health",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.OPENCLAW_BASE_URL || 'http://host.docker.internal:18789') + '/v1/responses' }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.OPENCLAW_GATEWAY_TOKEN }}"}, {"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENCLAW_INBOX_MODEL || 'openclaw/ai-test', input: $json.openclawPrompt }) }}",
+        "options": {"timeout": 30000}
+      },
+      "id": "call-openclaw",
+      "name": "Call OpenClaw",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 500],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {"mode": "combine", "combinationMode": "mergeByPosition"},
+      "id": "merge-request-runtime",
+      "name": "Merge Request And Runtime",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [1220, 420]
+    },
+    {
+      "parameters": {
+        "jsCode": "let action = $json.forcedAction;\nlet message = '';\nlet confidence = 0;\nlet reason = $json.forcedReason;\nlet handoffCategory = $json.forcedCategory;\n\nif (!action) {\n  if ($json.error) {\n    action = 'handoff';\n    reason = 'Jennifer runtime was unavailable while processing this message.';\n    handoffCategory = 'runtime_unavailable';\n    console.error(JSON.stringify({ event: 'openclaw_failure', organizationId: $json.organizationId, contactId: $json.contactId, providerMessageId: $json.providerMessageId }));\n  } else {\n    const output = Array.isArray($json.output) ? $json.output : [];\n    const text = output.flatMap((entry) => Array.isArray(entry.content) ? entry.content : []).find((entry) => entry?.type === 'output_text' && typeof entry.text === 'string')?.text?.trim();\n    if (!text || text.startsWith('```') || text.includes('<tool')) {\n      action = 'handoff';\n      reason = 'Jennifer returned an invalid response.';\n      handoffCategory = 'invalid_runtime_output';\n    } else {\n      action = 'reply';\n      message = text;\n      confidence = 0.7;\n      reason = 'Safe response generated from the saved business context.';\n    }\n  }\n}\n\nreturn [{ json: { callbackUrl: $json.callbackUrl, organizationId: $json.organizationId, contactId: $json.contactId, providerMessageId: $json.providerMessageId, to: $json.phone, action, message, confidence, reason, handoffCategory } }];"
+      },
+      "id": "finalize-decision",
+      "name": "Finalize Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1460, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "x-n8n-webhook-secret", "value": "={{ $env.N8N_WHATSAPP_REPLY_SECRET }}"}, {"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ organizationId: $json.organizationId, contactId: $json.contactId, providerMessageId: $json.providerMessageId, to: $json.to, action: $json.action, message: $json.message, confidence: $json.confidence, reason: $json.reason, handoffCategory: $json.handoffCategory }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "callback-quicreply",
+      "name": "Callback QuicReply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 420],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Prepare Request", "type": "main", "index": 0}]]},
+    "Prepare Request": {"main": [[{"node": "Is Health Check", "type": "main", "index": 0}]]},
+    "Is Health Check": {"main": [[{"node": "Check OpenClaw", "type": "main", "index": 0}], [{"node": "Merge Request And Runtime", "type": "main", "index": 0}, {"node": "Call OpenClaw", "type": "main", "index": 0}]]},
+    "Check OpenClaw": {"main": [[{"node": "Finalize Health", "type": "main", "index": 0}]]},
+    "Call OpenClaw": {"main": [[{"node": "Merge Request And Runtime", "type": "main", "index": 1}]]},
+    "Merge Request And Runtime": {"main": [[{"node": "Finalize Decision", "type": "main", "index": 0}]]},
+    "Finalize Decision": {"main": [[{"node": "Callback QuicReply", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "meta": {"templateCredsSetupCompleted": true},
+  "tags": [],
+  "versionId": "8c9c307d-7f4d-4927-9f11-28f2ee444136"
+}

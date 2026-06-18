@@ -1,0 +1,16 @@
+# Copy to /opt/stack/quicreply-n8n-runtime.env and chmod 600.
+N8N_HOST=n8n.quicreply.io
+N8N_PROTOCOL=https
+WEBHOOK_URL=https://n8n.quicreply.io/
+N8N_TRUST_PROXY=true
+N8N_PORT=5678
+N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+OPENCLAW_BASE_URL=http://host.docker.internal:18789
+OPENCLAW_GATEWAY_TOKEN=replace-with-rotated-token
+OPENCLAW_INBOX_MODEL=openclaw/ai-test
+OPENCLAW_AI_TEST_MODEL=openclaw/ai-test
+
+N8N_WHATSAPP_ROUTER_SECRET=replace-with-rotated-secret
+N8N_WHATSAPP_REPLY_SECRET=replace-with-rotated-secret
+N8N_AI_TEST_WEBHOOK_SECRET=replace-with-rotated-secret

@@ -24,7 +24,7 @@ const aiSandboxWebhookResponseSchema = z.object({
   warnings: z.array(z.string().trim().min(1).max(240)).max(10).optional(),
 });
 
-const AI_SANDBOX_TIMEOUT_MS = 20_000;
+const AI_SANDBOX_TIMEOUT_MS = 35_000;
 const MIN_CONTEXT_LENGTH = 20;
 
 export type AiSandboxHistoryMessage = z.infer<typeof sandboxHistoryMessageSchema>;
